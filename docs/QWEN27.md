@@ -3,6 +3,8 @@
 2026-10-14。本后端自动识别 Halogen `Qwen3.8-27B-p1-d2`、HGN1/version 2，
 对应文件 `qwen3.8-27b-p1w4d-d2.hgn`。支持 Windows / gfx1151 上的文本生成、
 OpenAI 兼容对话接口、流式输出、工具调用、采样、取消和连续前缀复用。
+后续的 DFlash2 支持、固定语料评分、最新二进制验证和默认模式选择见
+[DFlash2 专项记录](QWEN27_DFLASH.md)。
 
 它使用独立的 27B 执行路径；Flash-Next 的 MoE、HC、PLE、专用 KV 几何和
 量化类型解释没有被改写。API 与 tokenizer 沿用现有实现。原有服务可以继续使用原配置。
@@ -16,7 +18,7 @@ OpenAI 兼容对话接口、流式输出、工具调用、采样、取消和连�
 ```
 
 对应发布者 Hugging Face revision `800ec932fc4a83ddd18b83d293cfd147946e77f9`。
-容器有 1,352 个张量。本后端加载文本主干，可选加载内置 MTP，跳过 `.i4l` 镜像和 DFlash 草稿。
+容器有 1,352 个张量。本后端加载文本主干，可选加载内置 MTP 或 DFlash2，跳过 `.i4l` 镜像。
 模型名、版本、主干张量形状、dtype、qparam 和载荷大小均在加载时检查。
 本实现的完整权重文件验证不等于每次启动都会重新计算 SHA256。
 
@@ -28,10 +30,11 @@ OpenAI 兼容对话接口、流式输出、工具调用、采样、取消和连�
 | dtype 0 | BF16 原值转换成 FP32 |
 | dtype 6 | E4M3FN codes，末尾逐行 **BF16** scale |
 | dtype 5 / qparam 0 | NVFP4 codebook，逐行 `[nibbles][每 16 个值一个 FP8 scale]` |
-| dtype 5 / qparam 1 | MTP NF4，逐行 `[nibbles][每 32 个值一个 FP16 scale]`；不能按 NVFP4 解释 |
+| dtype 5 / qparam 1 | MTP / DFlash2 NF4，逐行 `[nibbles][每 32 个值一个 FP16 scale]`；不能按 NVFP4 解释 |
 | decode | 向量化加载并原位解码，FP32 FMA；HIP graph 和 dense split attention |
 | prefill | 默认 512 token 分块，BF16 主项和残差两次矩阵乘、FP32 累加；保留 FP32 SGEMM 对照模式 |
 | MTP | 单层草稿，最多提前猜 3 token，主模型批量验证；GDN/卷积状态可按接受长度回退 |
+| DFlash2 | 可选五层草稿、动态卷积和候选选择器，最多 7 个草稿，默认完整词表；见专项说明 |
 
 这里的 dtype 5 不是 Flash-Next 的 Q4CP 布局；dtype 8 `.i4l` 也不是引擎的
 合成 q8g32。不能只凭 HGN version 或 dtype 数字共用旧解码器。
@@ -135,9 +138,11 @@ python tools/qwen27_mtp_reference.py C:\models\halogen-qwen3.8-27b\qwen3.8-27b-p
   原有 Flash-Next 在其配套 n-gram 与运行参数下仍能加载并生成；HGN v2 与 overlay 格式测试通过。
   纯文本部署的 `/health` 正确声明不支持图片，Chat/Responses 图片请求返回 HTTP 400。
 
-机器可读的结果摘要和二进制 SHA256 见 [QWEN27_VALIDATION.json](QWEN27_VALIDATION.json)。
+MTP 阶段的历史结果摘要和当时的二进制 SHA256 见 [QWEN27_VALIDATION.json](QWEN27_VALIDATION.json)；
+最新扩展版本见 [QWEN27_DFLASH_VALIDATION.json](QWEN27_DFLASH_VALIDATION.json)。
 
-这些检查证明上述输入上的实现一致性，不是全语料质量评测。未将原始 BF16 模型
+这些检查证明上述输入上的实现一致性，不是全语料质量评测。后续增加了 2,880 个位置的
+固定语料概率对照及 DFlash2 验证，见 [QWEN27_DFLASH.md](QWEN27_DFLASH.md)。未将原始 BF16 模型
 作为质量基准，也不宣称复现 Halogen 闭源引擎的性能。
 
 ## 性能和内存
@@ -183,10 +188,10 @@ HIP graph 单独的收益很小，主要 decode 收益来自 GEMV。
 ## 当前边界
 
 - 纯文本、单请求槽；连续完整前缀可复用。分叉/截断历史重新 prefill，无 SSD 状态缓存。
-- 已接入 MTP；DFlash2 和 `.i4l` 加速镜像未接入。
+- 已接入 MTP 和可选 DFlash2；`.i4l` 加速镜像未接入。
 - 文件不含视觉塔，本后端不接收图像。它不会把 Flash-Next 视觉权重套用到 27B。
 - 默认 8K；更长上下文需要额外内存与测试。代码中的容量上限不代表该长度已经验证。
 - 仅此 HGN recipe 经验证；其他量化 recipe、GGUF 或原始 safetensors 不能直接传给本后端。
 
-尚未建立全语料困惑度/任务质量基准；数值误差和上述输入的一致性不能等同于全模型
-质量保证。DFlash2 仍需独立验证其卷积、草稿状态与候选筛选，不承诺闭源 Halogen 的性能。
+尚未建立全语料困惑度/任务质量基准；数值误差和已测输入的一致性不能等同于全模型
+质量保证，不承诺闭源 Halogen 的性能。DFlash2 的数值、生成回退、性能取舍和复现步骤见专项说明。

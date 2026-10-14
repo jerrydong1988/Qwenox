@@ -7,15 +7,15 @@ static void ck(hipError_t e){if(e!=hipSuccess)throw std::runtime_error(hipGetErr
 template<int D,int P>void run(const uint8_t* w,const float* x,float* y,int n,int k){qwen27_fast::batch<D,P><<<(n+3)/4,128>>>(w,x,y,n,k);}
 template<int D>void test(const hgn::Tensor& t){
   int n=int(t.dims[0]),k=int(t.dims[1]);uint8_t* w;float *x,*y;
-  ck(hipMalloc(&w,t.data_size));ck(hipMalloc(&x,4*k*sizeof(float)));ck(hipMalloc(&y,4*n*sizeof(float)));
-  ck(hipMemcpy(w,t.data,t.data_size,hipMemcpyHostToDevice));std::vector<float> input(4*k),serial(4*n),batch(4*n);
+  ck(hipMalloc(&w,t.data_size));ck(hipMalloc(&x,8*k*sizeof(float)));ck(hipMalloc(&y,8*n*sizeof(float)));
+  ck(hipMemcpy(w,t.data,t.data_size,hipMemcpyHostToDevice));std::vector<float> input(8*k),serial(8*n),batch(8*n);
   for(size_t i=0;i<input.size();++i)input[i]=sinf(float(i)*.017f)+.1f*cosf(float(i)*.031f);
   ck(hipMemcpy(x,input.data(),input.size()*4,hipMemcpyHostToDevice));
-  for(int p=0;p<4;++p)qwen27_fast::gemv<D,1><<<(n+3)/4,128>>>(w,x+p*k,y+p*n,n,k);
+  for(int p=0;p<8;++p)qwen27_fast::gemv<D,1><<<(n+3)/4,128>>>(w,x+p*k,y+p*n,n,k);
   ck(hipMemcpy(serial.data(),y,serial.size()*4,hipMemcpyDeviceToHost));
   double worst=0;
-  for(int p=1;p<=4;++p){
-    auto invoke=[&](){if(p==1)run<D,1>(w,x,y,n,k);if(p==2)run<D,2>(w,x,y,n,k);if(p==3)run<D,3>(w,x,y,n,k);if(p==4)run<D,4>(w,x,y,n,k);};
+  for(int p=1;p<=8;++p){
+    auto invoke=[&](){if(p==1)run<D,1>(w,x,y,n,k);if(p==2)run<D,2>(w,x,y,n,k);if(p==3)run<D,3>(w,x,y,n,k);if(p==4)run<D,4>(w,x,y,n,k);if(p==5)run<D,5>(w,x,y,n,k);if(p==6)run<D,6>(w,x,y,n,k);if(p==7)run<D,7>(w,x,y,n,k);if(p==8)run<D,8>(w,x,y,n,k);};
     invoke();ck(hipMemcpy(batch.data(),y,p*n*4,hipMemcpyDeviceToHost));
     if(memcmp(serial.data(),batch.data(),p*n*4))throw std::runtime_error("batch differs from serial GEMV");
     auto start=std::chrono::steady_clock::now();for(int j=0;j<10;++j)invoke();ck(hipDeviceSynchronize());
@@ -29,5 +29,5 @@ template<int D>void test(const hgn::Tensor& t){
 int main(int argc,char** argv){
   if(argc!=2)return 2;hgn::Checkpoint ckpt(argv[1]);
   test<6>(ckpt.at("layers.0.linear_attn.in_proj_qkv.weight"));test<5>(ckpt.at("layers.0.mlp.gate_proj.weight"));
-  test<0>(ckpt.at("mtp.fc.weight"));test<51>(ckpt.at("mtp.layers.0.mlp.gate_proj.weight"));
+  test<51>(ckpt.at("drafter.fc.weight"));test<0>(ckpt.at("mtp.fc.weight"));test<51>(ckpt.at("mtp.layers.0.mlp.gate_proj.weight"));
 }

@@ -1,4 +1,4 @@
-"""Compare MTP with serial target execution, including rejected draft rollback."""
+"""Compare MTP/DFlash2 with serial target execution, including rejected draft rollback."""
 import argparse
 import json
 import subprocess
@@ -12,6 +12,7 @@ def main():
     ap.add_argument('--baseline-port', type=int, default=18872)
     ap.add_argument('--tokenizer', required=True)
     ap.add_argument('--cli', type=Path, default=Path('build/eng-cli-win.exe'))
+    ap.add_argument('--drafter', type=int, choices=[1,2], default=1)
     ap.add_argument('--sampled', action='store_true', help='verify MTP target resampling instead of the earlier serial fallback')
     args = ap.parse_args()
     def encode(prompt):
@@ -29,13 +30,14 @@ def main():
         ('two-tokens', [1, 2, 3, 4], 2),
         ('long', [1, 2, 3, 4, 5, 6, 7, 8]*257, 32),
     ]
+    draft = str(args.drafter)
     spec, base = Client(args.port), Client(args.baseline_port)
     results = []
     total_drafts = total_accepts = 0
     for i, (name, ids, count) in enumerate(cases):
         spec.gen(10000, [101], 1)
         base.gen(10000, [101], 1)
-        a, sa = spec.gen(100+i, ids, count, '1')
+        a, sa = spec.gen(100+i, ids, count, draft)
         b, sb = base.gen(100+i, ids, count)
         record = {'case': name, 'pass': a == b, 'tokens': a, 'mtp': sa, 'serial': sb}
         print(json.dumps(record, ensure_ascii=False), flush=True)
@@ -43,7 +45,7 @@ def main():
         total_drafts += int(sa[11])
         total_accepts += int(sa[9])-int(sa[8])
         # A speculative request may have consumed its last emitted token.
-        continued, cached = spec.gen(500+i, ids+a, 8, '1')
+        continued, cached = spec.gen(500+i, ids+a, 8, draft)
         base.gen(10000, [102], 1)
         fresh, fresh_stats = base.gen(500+i, ids+a, 8)
         assert continued == fresh, (name, continued, fresh, cached, fresh_stats)
@@ -52,22 +54,22 @@ def main():
     for eos in [5, 6, 24218]:
         spec.gen(10000, [103], 1)
         base.gen(10000, [103], 1)
-        a, sa = spec.gen(eos, [1, 2, 3, 4], 16, '1', [eos])
+        a, sa = spec.gen(eos, [1, 2, 3, 4], 16, draft, [eos])
         b, sb = base.gen(eos, [1, 2, 3, 4], 16, '', [eos])
         assert a == b and sa[2] == sb[2] == 'done', (eos, a, b, sa, sb)
     # Fixed-seed target sampling, with penalties and log probabilities.
     sampling = 'SAMPLE 0.7 20 0.9 0 12345 LOGPROBS PENALTY 0.2 0.1'
     spec.gen(10000, [104], 1)
     base.gen(10000, [104], 1)
-    a, sa = spec.gen(700, [1, 2, 3, 4], 16, '1 '+sampling)
+    a, sa = spec.gen(700, [1, 2, 3, 4], 16, draft+' '+sampling)
     b, sb = base.gen(700, [1, 2, 3, 4], 16, sampling)
-    assert a == b and sa[7] == ('1' if args.sampled else '0'), (a, b, sa, sb)
+    assert a == b and sa[7] == (draft if args.sampled else '0'), (a, b, sa, sb)
     if args.sampled:
         for seed in [1, 7, 12345]:
             for name, ids, _ in cases[1:3]:
                 suffix = f'SAMPLE 0.8 40 0.95 0.02 {seed} LOGPROBS PENALTY 0.1 0.1 BIAS 1 198 -0.25'
                 spec.gen(10000, [105], 1);base.gen(10000, [105], 1)
-                a, sa = spec.gen(800, ids, 48, '1 '+suffix)
+                a, sa = spec.gen(800, ids, 48, draft+' '+suffix)
                 al = spec.last_logprobs
                 b, sb = base.gen(800, ids, 48, suffix)
                 delta = max(abs(x-y) for x, y in zip(al, base.last_logprobs))
@@ -76,7 +78,7 @@ def main():
                 assert a == b, (record, a, b)
                 assert len(al) == len(a) and len(base.last_logprobs) == len(b) and delta < 1e-4, record
     spec.gen(10000, [106], 1)
-    spec.send('GEN 900 128 0 4 1 2 3 4 1')
+    spec.send('GEN 900 128 0 4 1 2 3 4 '+draft)
     while not spec.read().startswith('T 900 '):
         pass
     spec.send('X 900')
@@ -85,7 +87,7 @@ def main():
         if line.startswith('D 900 '):
             assert line.split()[2] == 'cancel', line
             break
-    a, sa = spec.gen(901, [1, 2, 3, 4], 8, '1')
+    a, sa = spec.gen(901, [1, 2, 3, 4], 8, draft)
     assert a == [5, 6, 24218, 10, 4838, 1665, 25, 33898], (a, sa)
     assert 0 < total_accepts < total_drafts, (total_drafts, total_accepts)
     print(json.dumps({'pass': True, 'cases': len(results), 'drafted': total_drafts,

@@ -52,19 +52,22 @@ def main():
     ap.add_argument("--api", default="http://127.0.0.1:18871")
     ap.add_argument("--long", action="store_true", help="also verify 2056-token dense attention and continuation")
     ap.add_argument("--mtp", action="store_true", help="exercise MTP and expect its capability flag")
+    ap.add_argument("--dflash", action="store_true", help="exercise DFlash2 and expect its capability flag")
     args = ap.parse_args()
+    assert not (args.mtp and args.dflash), "select one drafter"
     results = []
     def check(name, ok, detail=None):
         assert ok, (name, detail)
         result = {"test": name, "pass": True, "detail": detail}
         results.append(result)
         print(json.dumps(result, ensure_ascii=False), flush=True)
-    c = Client(args.engine_port, 1 if args.mtp else 0)
+    draft = 2 if args.dflash else (1 if args.mtp else 0)
+    c = Client(args.engine_port, draft)
     c.send("PING")
     check("ping", c.read() == "PONG")
     c.send("INFO")
     info = c.read().split()
-    check("capabilities", info[:3] == ["I", "1" if args.mtp else "0", "0"] and info[10] == "1", info)
+    check("capabilities", info[:3] == ["I", str(draft), "0"] and info[10] == "1", info)
     t, d = c.gen(1, [1, 2, 3, 4], 1, eos=[5])
     check("eos-is-not-streamed", not t and d[2] == "done", d)
     t, d = c.gen(2, [248320], 1)
