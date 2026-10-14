@@ -177,4 +177,5 @@
 #include "../vision_limits.h"
 #include "parts/50_serve.inc"
 #include "parts/51_host_cfg.inc"
+#include "parts/53_qwen27.inc"
 #include "parts/52_main.inc"

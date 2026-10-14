@@ -9,7 +9,11 @@
 `codex/hybrid-mainline`。面向 **Windows 11 /
 Ryzen AI Max+ 395 / Radeon 8060S（gfx1151）/ 128 GiB 统一内存**，重点是
 Halogen Flash-Next v2 HGN 格式支持、专家计算与 Prefill 优化，以及串行/MTP 的数值对齐。
-目标模型仍是 Qwen3.8-Flash-Next（`qwen4_exp`）及兼容结构，不是通用模型推理框架。
+支持 Qwen3.8-Flash-Next（`qwen4_exp`）以及新增的 **Qwen3.8-27B HGN 文本模型**，不是通用模型推理框架。
+
+Qwen3.8-27B 使用独立的稠密/GDN 后端，自动识别 `qwen3.8-27b-p1w4d-d2.hgn`，
+支持文本对话、工具调用、采样和连续前缀复用。构建、配置、精度与性能验证见
+[Qwen27 适配说明](docs/QWEN27.md)，配置样例为 [windows_qwen27.conf.example](tools/windows_qwen27.conf.example)。
 
 **旧版 w4b / Q4CP 路径仍保留，v2 是新增支持，并非替换旧格式。**
 不同格式的验证范围见下表；格式兼容不表示所有新内核都适用于旧权重，也不保证新旧版本逐位输出相同。

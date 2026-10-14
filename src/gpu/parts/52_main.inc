@@ -60,6 +60,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 #endif
+  if (argc > 1 && qwen27::identifies(argv[1])) return qwen27::main(argc, argv);
   if (argc < 2) {
     fprintf(stderr,
             "usage: gdec <base.hgn> [overlay.hgn ...] --tokens 1,2,3 [--gen N] [--dump] "

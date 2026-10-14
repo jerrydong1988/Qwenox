@@ -903,6 +903,8 @@ int main(int argc, char** argv) {
     std::string overlay_file = cfg_optional("OVERLAY_FILE", "");
     const std::string tokenizer_dir =
         cfg("TOKENIZER_DIR", model_dir + "\\tokenizer");
+    const std::string api_model = cfg("API_MODEL", "qwen3.8-flash-next");
+    printf("API_MODEL=%s\n", api_model.c_str());
     const std::string engine_host = cfg("ENGINE_HOST", engine_net::kDefaultHost);
     const int engine_port = cfg_int("ENGINE_PORT", 8730, 1, 65535);
     const std::string api_host = cfg("API_HOST", "0.0.0.0");
@@ -1085,7 +1087,8 @@ int main(int argc, char** argv) {
     g_plan.api_args = {"--tokenizer", tokenizer_dir, "--engine",
                        engine_net::connect_host(engine_host) + ":" + std::to_string(engine_port), "--host", api_host,
                        "--port", std::to_string(api_port), "--context",
-                       std::to_string(max_context)};
+                       std::to_string(max_context), "--model", api_model};
+    if (vision_file.empty()) g_plan.api_args.push_back("--text-only");
 
     // 子进程进 Job：本进程一退出（含崩溃、被任务管理器结束），Job 句柄关闭，
     // 引擎和 API 随之结束。

@@ -1,0 +1,627 @@
+{
+  "date": "2026-10-14",
+  "hardware": "Windows 11, Ryzen AI Max+395 / gfx1151, 128 GiB",
+  "base_commit": "e3615e02814a124b6bbafef1afcf385669efd5d4",
+  "context": 8192,
+  "prefill_chunk": 256,
+  "weight_sha256": "274c3fc767fb57faf025dd03c76376b1fc1b32448aef45aaf02d1898fa962089",
+  "numeric_reference": {
+    "tokens": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "independent": "NumPy FP32 equations, same HGN weights",
+    "result": {
+      "pass": true,
+      "worst_layer_relative_l2": 1.190248972184241e-06,
+      "logit_max_abs": 1.049041748046875e-05,
+      "kl": [
+        1.3959799221543386e-12,
+        1.5791034408385292e-12,
+        2.7471997852665523e-12,
+        1.2290030829692445e-12
+      ],
+      "expected_tokens": [
+        5328,
+        220,
+        4,
+        5
+      ],
+      "actual_tokens": [
+        5328,
+        220,
+        4,
+        5
+      ],
+      "failures": []
+    }
+  },
+  "weight_decoder_sample_values": 98304,
+  "weight_decoder_sample_bitwise_equal": true,
+  "live": {
+    "pass": true,
+    "checks": 13,
+    "results": [
+      {
+        "test": "ping",
+        "pass": true,
+        "detail": null
+      },
+      {
+        "test": "capabilities",
+        "pass": true,
+        "detail": [
+          "I",
+          "0",
+          "0",
+          "8192",
+          "1",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0",
+          "1",
+          "8192",
+          "1",
+          "1",
+          "8192"
+        ]
+      },
+      {
+        "test": "eos-is-not-streamed",
+        "pass": true,
+        "detail": [
+          "D",
+          "1",
+          "done",
+          "4",
+          "0",
+          "490.743",
+          "0.7595",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "test": "invalid-token-rejected",
+        "pass": true,
+        "detail": [
+          "D",
+          "2",
+          "error",
+          "1",
+          "0",
+          "0",
+          "0"
+        ]
+      },
+      {
+        "test": "greedy-generation",
+        "pass": true,
+        "detail": [
+          "D",
+          "3",
+          "length",
+          "4",
+          "8",
+          "0.0058",
+          "725.39",
+          "0",
+          "0",
+          "0",
+          "4",
+          "0"
+        ]
+      },
+      {
+        "test": "cache-continuation-parity",
+        "pass": true,
+        "detail": {
+          "tokens": [
+            2110,
+            30,
+            31,
+            25223,
+            87197,
+            62,
+            63,
+            44576
+          ],
+          "cached": [
+            "D",
+            "4",
+            "length",
+            "12",
+            "8",
+            "102.952",
+            "722.963",
+            "0",
+            "0",
+            "0",
+            "11",
+            "0"
+          ],
+          "fresh": [
+            "D",
+            "6",
+            "length",
+            "12",
+            "8",
+            "2797.53",
+            "720.975",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0"
+          ]
+        }
+      },
+      {
+        "test": "seeded-sampling-replay",
+        "pass": true,
+        "detail": [
+          5,
+          6,
+          24218,
+          10,
+          4838,
+          1665,
+          25,
+          33898
+        ]
+      },
+      {
+        "test": "multi-chunk-continuation",
+        "pass": true,
+        "detail": {
+          "prefill": [
+            "D",
+            "10",
+            "length",
+            "136",
+            "4",
+            "3789.63",
+            "311.393",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "cached": [
+            "D",
+            "11",
+            "length",
+            "140",
+            "4",
+            "102.749",
+            "311.374",
+            "0",
+            "0",
+            "0",
+            "139",
+            "0"
+          ],
+          "fresh": [
+            "D",
+            "13",
+            "length",
+            "140",
+            "4",
+            "3800.55",
+            "311.653",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0"
+          ]
+        }
+      },
+      {
+        "test": "dense-attention-beyond-2051",
+        "pass": true,
+        "detail": {
+          "tokens": [
+            248046,
+            198,
+            248045,
+            248068,
+            198,
+            760,
+            1156,
+            682,
+            3106,
+            264,
+            1546,
+            1248,
+            886,
+            314,
+            11173,
+            5587
+          ],
+          "continuation": [
+            25,
+            5687,
+            3,
+            4,
+            5,
+            6,
+            7,
+            9646
+          ],
+          "prefill": [
+            "D",
+            "101",
+            "length",
+            "2056",
+            "16",
+            "45815.3",
+            "1620.33",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0"
+          ],
+          "cached": [
+            "D",
+            "102",
+            "length",
+            "2072",
+            "8",
+            "107.434",
+            "760.239",
+            "0",
+            "0",
+            "0",
+            "2071",
+            "0"
+          ],
+          "fresh": [
+            "D",
+            "104",
+            "length",
+            "2072",
+            "8",
+            "46750.2",
+            "739.551",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0"
+          ]
+        }
+      },
+      {
+        "test": "cancel",
+        "pass": true,
+        "detail": "D 14 cancel 4 1 392.941 3.0358 0 0 0 0 0"
+      },
+      {
+        "test": "healthy-after-cancel",
+        "pass": true,
+        "detail": null
+      },
+      {
+        "test": "chinese-arithmetic",
+        "pass": true,
+        "detail": {
+          "response": {
+            "id": "chatcmpl-5eec59fb206c5cc50b20a1d7",
+            "created": 1791965359,
+            "model": "qwen3.8-27b-hgn",
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {
+                  "role": "assistant",
+                  "content": "391",
+                  "reasoning_content": ""
+                }
+              }
+            ],
+            "usage": {
+              "prompt_tokens": 24,
+              "completion_tokens": 3,
+              "total_tokens": 27
+            }
+          },
+          "seconds": 2.327999999994063
+        }
+      },
+      {
+        "test": "tool-call",
+        "pass": true,
+        "detail": {
+          "response": {
+            "id": "chatcmpl-0de5de94501f0c5108ff0e0f",
+            "created": 1791965361,
+            "model": "qwen3.8-27b-hgn",
+            "object": "chat.completion",
+            "choices": [
+              {
+                "index": 0,
+                "finish_reason": "tool_calls",
+                "message": {
+                  "role": "assistant",
+                  "content": "",
+                  "reasoning_content": "",
+                  "tool_calls": [
+                    {
+                      "id": "call_49138003c03753c59954efb3",
+                      "type": "function",
+                      "function": {
+                        "name": "add",
+                        "arguments": "{\"a\":17,\"b\":23}"
+                      }
+                    }
+                  ]
+                }
+              }
+            ],
+            "usage": {
+              "prompt_tokens": 294,
+              "completion_tokens": 36,
+              "total_tokens": 330
+            }
+          },
+          "seconds": 11.328000000001339
+        }
+      }
+    ]
+  },
+  "api_smoke": [
+    {
+      "test": "text-only-capabilities",
+      "pass": true,
+      "detail": {
+        "status": "ok",
+        "model": "qwen3.8-27b-hgn",
+        "endpoints": [
+          "/v1/chat/completions",
+          "/v1/completions",
+          "/v1/models",
+          "/v1/responses",
+          "/dashboard",
+          "/reqstat/summary",
+          "/reqstat/tail",
+          "/metrics/live"
+        ],
+        "rope_scaling": null,
+        "context": 8192,
+        "slot_ctx": 8192,
+        "slots": 1,
+        "kv_pool": 8192,
+        "engine_info_ready": true,
+        "queued": 0,
+        "busy": false,
+        "in_flight": 0,
+        "busy_for_s": 0,
+        "decode": "greedy at explicit temperature 0; Qwen-default sampling (temp 1.0, top_k 20, top_p 0.95) when temperature is omitted; sampled at temperature > 0",
+        "prompt_cache": {
+          "enabled": false,
+          "cap_mb": 0
+        },
+        "tool_calls": {
+          "parsed": true,
+          "template_injection": true,
+          "wire_format": "qwen-xml (<function=>/<parameter=>)",
+          "streaming": true,
+          "tool_choice": [
+            "auto",
+            "none",
+            "required",
+            "named"
+          ],
+          "parallel_tool_calls": true,
+          "constrained_decoding": false
+        },
+        "vision": {
+          "accepted": false,
+          "chat_content_type": "image_url",
+          "responses_content_type": "input_image",
+          "inline_data_url": true,
+          "bare_base64": true,
+          "http_urls": false,
+          "formats": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "animated_webp": false,
+          "webp_decoder": "libwebp",
+          "webp_decoder_version": "1.6.0",
+          "max_images": 8,
+          "max_total_patches": 262144,
+          "max_visual_tokens": 65536,
+          "video": false,
+          "runtime": "native-cpp"
+        },
+        "supported": [
+          "reasoning_effort",
+          "enable_thinking",
+          "preserve_thinking",
+          "stop",
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens",
+          "stream",
+          "seed",
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "logit_bias",
+          "logprobs",
+          "tools",
+          "tool_choice",
+          "parallel_tool_calls"
+        ],
+        "token_budget_aliases": [
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens"
+        ],
+        "max_tokens_default": "unbounded (budget = context minus prompt length)",
+        "error_format": "openai",
+        "accepted_but_ignored": [
+          "n",
+          "drafter"
+        ],
+        "partial": [],
+        "sampling": {
+          "implemented": [
+            "temperature",
+            "top_p",
+            "top_k",
+            "min_p",
+            "seed",
+            "presence_penalty",
+            "frequency_penalty",
+            "logit_bias",
+            "logprobs"
+          ]
+        },
+        "max_tokens_cap": null,
+        "reasoning_effort_values": [
+          "high",
+          "low",
+          "medium",
+          "minimal",
+          "xhigh"
+        ],
+        "server_overrides": {}
+      }
+    },
+    {
+      "test": "model-name",
+      "pass": true,
+      "detail": {
+        "object": "list",
+        "data": [
+          {
+            "id": "qwen3.8-27b-hgn",
+            "object": "model",
+            "owned_by": "local",
+            "created": 0
+          }
+        ]
+      }
+    },
+    {
+      "test": "reject-images/v1/chat/completions",
+      "pass": true,
+      "detail": {
+        "error": {
+          "message": "This model deployment supports text only; image and video input is unavailable.",
+          "type": "invalid_request_error",
+          "param": null,
+          "code": null
+        }
+      }
+    },
+    {
+      "test": "reject-images/v1/responses",
+      "pass": true,
+      "detail": {
+        "error": {
+          "message": "This model deployment supports text only; image and video input is unavailable.",
+          "type": "invalid_request_error",
+          "param": null,
+          "code": null
+        }
+      }
+    },
+    {
+      "test": "streaming-chinese",
+      "pass": true,
+      "detail": "391"
+    },
+    {
+      "test": "tool-result-roundtrip",
+      "pass": true,
+      "detail": {
+        "id": "chatcmpl-625c039cbe66823ace0c3d57",
+        "created": 1791965423,
+        "model": "qwen3.8-27b-hgn",
+        "object": "chat.completion",
+        "choices": [
+          {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {
+              "role": "assistant",
+              "content": "40",
+              "reasoning_content": ""
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 85,
+          "completion_tokens": 2,
+          "total_tokens": 87
+        }
+      }
+    },
+    {
+      "test": "responses-text",
+      "pass": true,
+      "detail": {
+        "id": "resp_a37f611169ce3effe10d378a",
+        "object": "response",
+        "created_at": 1791965426,
+        "status": "completed",
+        "model": "qwen3.8-27b-hgn",
+        "output": [
+          {
+            "id": "msg_aa9261d927cf1c57ba26cb19",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "4",
+                "annotations": [],
+                "logprobs": []
+              }
+            ]
+          }
+        ],
+        "parallel_tool_calls": true,
+        "max_output_tokens": 32,
+        "usage": {
+          "input_tokens": 22,
+          "output_tokens": 1,
+          "total_tokens": 23
+        }
+      }
+    },
+    {
+      "pass": true,
+      "checks": 7
+    }
+  ],
+  "api_mock_regression_assertions": 90,
+  "native_runtime_config_checks": 7,
+  "flash_next_configured_smoke_exit": 0,
+  "device_allocated_gib_8k": 21.84,
+  "binary_sha256": {
+    "build\\gdec-win.exe": "acaec9dbbd9d0a85914fe9da85326da1a5b7925c664948917e73f763a7f753be",
+    "build\\gdec-api-win.exe": "0a7e887f51fa0e1b7e1c600aa92e989a5720d69cde42cc6fbf35aa3224b9790a",
+    "start_win.exe": "81162425db0562f779639022f4a13603cec4a93c378e28731b0161778d9806a6"
+  }
+}

@@ -52,7 +52,7 @@ def main():
         ]
         env = {k: v for k, v in os.environ.items() if not k.startswith('GDEC_')}
         for key in ('MODEL_DIR', 'MODEL_FILE', 'NGRAM_FILE', 'MTP_FILE', 'VISION_FILE',
-                    'OVERLAY_FILE', 'TOKENIZER_DIR', 'ENGINE_PORT', 'API_PORT', 'MTP_GAMMA'):
+                    'OVERLAY_FILE', 'TOKENIZER_DIR', 'ENGINE_PORT', 'API_PORT', 'MTP_GAMMA', 'API_MODEL'):
             env.pop(key, None)
         for name, config, override, expected in cases:
             (root / 'service.conf').write_text(base + config, encoding='utf-8')
@@ -61,11 +61,18 @@ def main():
                                     encoding='utf-8', errors='replace', timeout=20,
                                     creationflags=subprocess.CREATE_NO_WINDOW)
             assert result.returncode == 0, (name, result.stdout, result.stderr)
+            assert 'API_MODEL=qwen3.8-flash-next' in result.stdout
             actual = dict(line[8:].split('=', 1) for line in result.stdout.splitlines()
                           if line.startswith('runtime '))
             assert all(actual.get(k) == v for k, v in expected.items()), (name, actual)
             assert not (root / 'logs').exists(), 'Dry run must not start children or create logs'
             print('PASS', name)
+        (root / 'service.conf').write_text(base + 'API_MODEL="qwen3.8-27b-hgn"\n', encoding='utf-8')
+        result = subprocess.run([str(root / 'start_win.exe'), '--check'], cwd=root,
+                                env=env, capture_output=True, text=True, encoding='utf-8',
+                                errors='replace', timeout=20, creationflags=subprocess.CREATE_NO_WINDOW)
+        assert result.returncode == 0 and 'API_MODEL=qwen3.8-27b-hgn' in result.stdout
+        print('PASS qwen27-api-model')
 
 
 if __name__ == '__main__':

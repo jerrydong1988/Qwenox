@@ -65,6 +65,7 @@ struct Config {
     std::string engine_addr = "127.0.0.1:8730";
     std::string listen = "0.0.0.0:8731";
     std::string model = "qwen3.8-flash-next";
+    bool text_only = false;
     int context = 262144;
     RopeConfig rope;
     // Server-side sampling/thinking overrides (see apply_overrides). Relative
@@ -1349,6 +1350,17 @@ bool responses_media_item(const json& item) {
            item.contains("video_url");
 }
 
+void check_model_modalities(const json& messages) {
+    if (!g_cfg.text_only) return;
+    for (const auto& message : messages) {
+        if (!message.is_object() || !message.contains("content")) continue;
+        const auto& content = message["content"];
+        if (content.is_array()) for (const auto& part : content)
+            if (responses_media_item(part))
+                http::fail(400, "This model deployment supports text only; image and video input is unavailable.");
+    }
+}
+
 json responses_message_content(const json& content, const char* field,
                                bool allow_media) {
     if (content.is_string()) return content;
@@ -1897,7 +1909,7 @@ void handle_health(const http::Request&, http::Response* r, http::Stream*) {
                        {"parallel_tool_calls", true},
                        {"constrained_decoding", false}};
     const json vision_cap = vision::capabilities();
-    j["vision"] = {{"accepted", true},
+    j["vision"] = {{"accepted", !g_cfg.text_only},
                    {"chat_content_type", "image_url"},
                    {"responses_content_type", "input_image"},
                    {"inline_data_url", true},
@@ -1917,7 +1929,9 @@ void handle_health(const http::Request&, http::Response* r, http::Stream*) {
          "max_tokens", "max_completion_tokens", "max_output_tokens", "stream",
          "seed", "temperature", "top_p", "top_k", "min_p", "presence_penalty",
          "frequency_penalty", "logit_bias", "logprobs", "tools", "tool_choice",
-         "parallel_tool_calls", "image_url", "input_image", "add_vision_id"});
+         "parallel_tool_calls"});
+    if (!g_cfg.text_only)
+        for (const char* field : {"image_url", "input_image", "add_vision_id"}) j["supported"].push_back(field);
     j["token_budget_aliases"] =
         json::array({"max_tokens", "max_completion_tokens", "max_output_tokens"});
     j["max_tokens_default"] = "unbounded (budget = context minus prompt length)";
@@ -2196,6 +2210,7 @@ void handle_chat(const http::Request& q, http::Response* r, http::Stream* st) {
     if (!body["messages"].is_array() || body["messages"].empty())
         http::fail(400, "No messages provided.");
     json messages = body["messages"];
+    check_model_modalities(messages);
     std::string normalize_error;
     if (!toolparse::normalize_messages(&messages, &normalize_error))
         http::fail(400, normalize_error);
@@ -2398,6 +2413,7 @@ void handle_responses(const http::Request& q, http::Response* r, http::Stream* s
     apply_overrides(&mutable_body, Api::Responses, r);
     const json& body = mutable_body;
     json messages = normalize_responses_input(body);
+    check_model_modalities(messages);
     std::vector<vision::Frame> frames;
     std::string vision_error;
     if (!vision::prepare_messages(messages, &frames, &vision_error))
@@ -2860,13 +2876,14 @@ int main(int argc, char** argv) {
             g_cfg.listen = h + ":" + g_cfg.listen.substr(g_cfg.listen.rfind(':') + 1);
         } else if (a == "--context") g_cfg.context = std::atoi(next().c_str());
         else if (a == "--model") g_cfg.model = next();
+        else if (a == "--text-only") g_cfg.text_only = true;
         else if (a == "--listen") g_cfg.listen = next();
         else if (a == "--overrides") g_cfg.overrides_path = next();  // "" = memory only
         else {
             fprintf(stderr,
                     "usage: %s [--tokenizer DIR] [--engine H:P] [--listen H:P] "
                     "[--port N] [--host H] [--context N] [--model NAME] "
-                    "[--overrides FILE]\n",
+                    "[--overrides FILE] [--text-only]\n",
                     argv[0]);
             return 2;
         }
