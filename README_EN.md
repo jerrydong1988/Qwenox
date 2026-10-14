@@ -10,8 +10,13 @@ with historical development on `codex/halogen-v2-support` and the practical main
 `codex/hybrid-mainline`. Work targets **Windows 11 / Ryzen AI Max+ 395 /
 Radeon 8060S (gfx1151) / 128 GiB unified memory**: Halogen Flash-Next v2 HGN loading,
 expert and prefill kernels, and numerical alignment between serial and MTP decoding.
-The target remains Qwen3.8-Flash-Next (`qwen4_exp`) and compatible architectures,
-not arbitrary language models.
+Supported models include Qwen3.8-Flash-Next (`qwen4_exp`) and the Qwen3.8-27B
+`qwen3.8-27b-p1w4d-d2.hgn` text checkpoint. This is not a general model runtime.
+
+The independent Qwen27 backend supports text, tools, sampling, prefix reuse,
+compensated prefill and target-verified MTP decoding. It retains FP32 prefill
+and serial decoding for comparison. See the [Qwen27 guide](docs/QWEN27.md) and
+[Windows service profile](tools/windows_qwen27.conf.example) for validation and limits.
 
 **The older w4b / Q4CP path is retained. V2 support is additive, not a replacement.**
 Format support, measured coverage, and which optimizations apply are separate questions;

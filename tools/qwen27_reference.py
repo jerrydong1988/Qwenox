@@ -53,7 +53,7 @@ class HGN:
             return bf16(arr[start:stop])
         rows, cols = shape
         stop = rows if stop is None else stop
-        if qp != 0:
+        if qp != 0 and not (dt == 5 and qp == 1):
             raise ValueError(f"unsupported qparam for {name}: {qp}")
         if dt == 6:
             if size != count + rows * 2:
@@ -70,7 +70,7 @@ class HGN:
             codes = packed[:, :cols//2]
             nib = np.empty((stop-start, cols), "u1")
             nib[:, 0::2], nib[:, 1::2] = codes & 15, codes >> 4
-            scales = np.repeat(e4m3(packed[:, cols//2:]), 16, axis=1)
+            scales = np.repeat(packed[:, cols//2:].copy().view('<f2').astype(np.float32), 32, axis=1) if qp == 1 else np.repeat(e4m3(packed[:, cols//2:]), 16, axis=1)
             return cb[nib] * scales
         raise ValueError(f"unsupported dtype {dt}: {name}")
 

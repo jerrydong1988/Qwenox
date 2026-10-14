@@ -16,7 +16,7 @@ OpenAI 兼容对话接口、流式输出、工具调用、采样、取消和连�
 ```
 
 对应发布者 Hugging Face revision `800ec932fc4a83ddd18b83d293cfd147946e77f9`。
-容器有 1,352 个张量。本后端加载文本主干，跳过 `.i4l` 镜像、MTP 和 DFlash 草稿。
+容器有 1,352 个张量。本后端加载文本主干，可选加载内置 MTP，跳过 `.i4l` 镜像和 DFlash 草稿。
 模型名、版本、主干张量形状、dtype、qparam 和载荷大小均在加载时检查。
 本实现的完整权重文件验证不等于每次启动都会重新计算 SHA256。
 
@@ -28,13 +28,18 @@ OpenAI 兼容对话接口、流式输出、工具调用、采样、取消和连�
 | dtype 0 | BF16 原值转换成 FP32 |
 | dtype 6 | E4M3FN codes，末尾逐行 **BF16** scale |
 | dtype 5 / qparam 0 | NVFP4 codebook，逐行 `[nibbles][每 16 个值一个 FP8 scale]` |
+| dtype 5 / qparam 1 | MTP NF4，逐行 `[nibbles][每 32 个值一个 FP16 scale]`；不能按 NVFP4 解释 |
 | decode | 向量化加载并原位解码，FP32 FMA；HIP graph 和 dense split attention |
-| prefill | 有界 FP32 解码工作区与 rocBLAS SGEMM；默认 256 token 分块，短输入走逐 token 路径 |
+| prefill | 默认 512 token 分块，BF16 主项和残差两次矩阵乘、FP32 累加；保留 FP32 SGEMM 对照模式 |
+| MTP | 单层草稿，最多提前猜 3 token，主模型批量验证；GDN/卷积状态可按接受长度回退 |
 
 这里的 dtype 5 不是 Flash-Next 的 Q4CP 布局；dtype 8 `.i4l` 也不是引擎的
 合成 q8g32。不能只凭 HGN version 或 dtype 数字共用旧解码器。
 
-主干权重保持 HGN 中的数值，没有再次量化、没有使用低精度 activation MAC。
+解码阶段使用原 HGN 权重数值和 FP32 FMA。加速预填充先将 FP8 行缩放或
+NVFP4 全局缩放移到点积之后；码本不满足条件时自动使用 FP32 路径。
+激活值拆成 BF16 主项和 BF16 残差，再以 FP32 累加，减少单次 BF16 舍入误差。
+这仍是近似 FP32 计算，不是逐位等价，也不是官方 Halogen 的 W4A4 激活量化路径。
 **把量化值展开为 FP32 不会恢复量化前丢失的精度。**
 GDN 输出使用 SiLU 门控和普通 RMSNorm；主干/QK 归一化使用零中心权重，
 全注意力输出使用 sigmoid 门控。
@@ -63,7 +68,7 @@ build_win.bat qwen27-test
 
 ```powershell
 .\build\gdec-win.exe C:\models\halogen-qwen3.8-27b\qwen3.8-27b-p1w4d-d2.hgn --serve --host 127.0.0.1 --port 18870 --maxctx 8192
-.\build\gdec-api-win.exe --tokenizer C:\models\halogen-qwen3.8-27b\tokenizer --engine 127.0.0.1:18870 --listen 127.0.0.1:18871 --model qwen3.8-27b-hgn --context 8192 --text-only
+.\build\gdec-api-win.exe --tokenizer C:\models\halogen-qwen3.8-27b\tokenizer --engine 127.0.0.1:18870 --host 127.0.0.1 --port 18871 --model qwen3.8-27b-hgn --context 8192 --text-only
 ```
 
 可用诊断参数：
@@ -71,8 +76,21 @@ build_win.bat qwen27-test
 - `--tokens 1,2,3,4 --gen 16` 或 `--tokens-file path`：直接生成 token ID。
 - `--qwen27-no-graph`：不用 HIP graph，使用普通全注意力计算作为对照。
 - `--qwen27-serial-prefill`：逐 token prefill，便于数值定位。
+- `--qwen27-prefill-mode fp32`：使用 FP32 SGEMM；默认 `compensated`。
+- `--qwen27-mtp` / `--qwen27-no-mtp`：启用/关闭服务端 MTP；默认不开启，提供的服务配置启用。
+- `--qwen27-mtp-gamma 3`：草稿长度，范围 1–3。
 - `--qwen27-prefill-chunk 128`：覆盖分块长度，范围 1–512；也可设置 `GDEC_PREFILL_CHUNK`。
 - `--qwen27-trace path`：导出各层 FP32 状态；该诊断模式关闭 graph，不能用其耗时代表服务性能。
+- `--qwen27-force-batch`：诊断时强制短输入也走预填充矩阵路径。
+
+原生启动器可在 `service.conf` 设置 `GDEC_QWEN27_MTP="1"`、
+`GDEC_QWEN27_MTP_GAMMA="3"`、`GDEC_QWEN27_PREFILL_MODE="compensated"`。
+`PREFILL_CHUNK="512"` 控制分块。MTP 权重在同一个 HGN 中，`MTP_FILE` 仍留空。
+CLI `--gen` 用于串行目标模型诊断；推测生成通过 `--serve` 后的引擎协议或 API 验证。
+
+采样模式每一步都从主模型分布抽样，只有抽中的 token 与草稿一致才接受；
+拒绝时恢复随机数状态和已输出 token 计数。温度、top-k/top-p/min-p、惩罚、
+bias 和 logprobs 仍由目标采样器计算。草稿不会绕过主模型核验。
 
 ## 验证基线
 
@@ -89,14 +107,28 @@ python tools/qwen27_live_test.py --engine-port 18870 --api http://127.0.0.1:1887
 python tools/qwen27_api_smoke.py --api http://127.0.0.1:18871
 ```
 
+启用 MTP 的服务给 `qwen27_live_test.py` 增加 `--mtp`。独立 MTP 数值对照：
+
+```powershell
+python tools/qwen27_mtp_reference.py C:\models\halogen-qwen3.8-27b\qwen3.8-27b-p1w4d-d2.hgn --target build/qwen27-reference --output build/qwen27-mtp-reference
+.\build\gdec-win.exe C:\models\halogen-qwen3.8-27b\qwen3.8-27b-p1w4d-d2.hgn --tokens 1,2,3,4 --gen 0 --maxctx 64 --qwen27-serial-prefill --qwen27-mtp-probe 5 --qwen27-trace build/qwen27-mtp-probe
+```
+
 已完成：
 
-- CPU 格式边界用例通过；真实权重 98,304 个抽样值，C++ 与独立 NumPy 解码逐位相同。
+- CPU 格式边界用例通过；包含 MTP NF4 后，真实权重 129,024 个抽样值，C++ 与独立 NumPy 解码逐位相同。
 - 四个输入 token、64 层与最终词表 logits 对比。向量化 decode 的最大层相对 L2
   误差 `1.19025e-6`，最大 logit 绝对误差 `1.04904e-5`，KL 最大约 `2.75e-12`，四个 top-1 全部一致。
 - FP32 batched prefill 的同一组对照最大层相对误差 `5.20893e-6`，top-1 全部一致。
+- 补偿预填充同一组对照最大层相对误差 `5.08075e-5`，logit 最大绝对误差
+  `2.93017e-4`，最大 KL `2.60e-9`，四个 top-1 一致。
+- MTP 单层与独立 NumPy 对照的 logit 相对 L2 `6.09e-7`、最大绝对误差
+  `1.04e-5`、KL `2.49e-12`，top-1 一致。四种布局的代表矩阵中，小批量 GEMV 的 1–4 行结果与串行逐位一致。
 - 协议/接口回归覆盖 EOS 不泄露、非法 token、固定 greedy 序列、采样复现、缓存续写、
   跨分块续写、取消及恢复、中文算术与结构化工具调用。
+- MTP 七组 greedy 用例与串行输出一致，覆盖数列、代码、中文、英文、短输出和长输入；
+  接受与拒绝分支均被实际执行，续写结果一致。代码/中文各三组采样种子也保持 token
+  序列一致，包含惩罚、bias、top-k/top-p/min-p 与 logprobs，最大 logprob 差约 `1e-5`。
 - 2,056 token 提示跨过旧 QSA 的 2,051 token 边界，继续生成再续写，缓存与重新 prefill 一致。
 - 相同长提示启用/关闭 HIP graph 的 16 个输出 ID 一致。
 - 最终部署通过 13 项引擎/接口检查、7 项 API 交付检查；API 另通过 90 项模拟引擎回归。
@@ -118,26 +150,43 @@ python tools/qwen27_api_smoke.py --api http://127.0.0.1:18871
 | 最初的逐 token 正确性实现 | 约 107.6 秒 |
 | FP32 批量 prefill + 初始 GEMV | 约 20.7 秒 |
 | 再加入向量化 GEMV（128-token 分块） | 约 12.2 秒 |
-| 最终版本（256-token 分块） | **约 11.3 秒** |
+| 首个兼容版本（256-token 分块） | 约 11.3 秒 |
+| 补偿预填充（256-token 分块，串行 decode） | 约 7.8 秒 |
+| 正式部署（512-token 分块，MTP gamma 3） | **约 3.9 秒** |
 
 在缓存四 token 提示后生成八 token 的测试中，实际七次 decode forward 从约
 2.36 秒降为 0.729 秒，即约 **9.6 token/s**。首个输出来自 prefill logits，
 不把这一步当作一次额外 decode forward。128-token 分块下，2,056 token prefill
-约 53.1 秒（38.7 token/s）；最终 256-token 分块版本约 **45.8 秒（44.9 token/s）**。
+约 53.1 秒（38.7 token/s）；首个兼容版本的 256-token 分块约 **45.8 秒（44.9 token/s）**。
 HIP graph 单独的收益很小，主要 decode 收益来自 GEMV。
 
+本轮加入补偿预填充和 MTP 后，512-token 分块下相同 2,056 token 提示的预填充
+约 **13.0 秒（158 token/s）**。以下 greedy 比较均生成相同 token ID；速度按
+`(输出数 - 1) / decode 时间` 计算，首个输出由 prefill logits 提供。
+
+| 输入 / 输出数 | 串行 decode | MTP gamma 3 decode | 加速比 |
+|---|---:|---:|---:|
+| 数字序列 / 64 | 6.55 秒 | 3.29 秒 | 1.99× |
+| Python / 96 | 9.86 秒 | 3.91 秒 | 2.52× |
+| 中文 / 96 | 9.87 秒 | 4.67 秒 | 2.11× |
+| 英文 / 96 | 9.81 秒 | 5.21 秒 | 1.88× |
+| 2,056 token 提示 / 32 | 3.28 秒 | 1.54 秒 | 2.13× |
+
+这些 MTP 测试约为 **18–24 token/s**，草稿接受率约 **71%**，随输入与采样参数变化。
+单/双 token 输出避免无收益的草稿验证。MTP 启用、实际尝试次数与提交数通过协议统计区分。
+
 权重主干约 **20.16 GiB**。8K FP32 KV 约 **1 GiB**，48 层 GDN 状态约
-**144 MiB**，其余是矩阵解码与分块工作区。最终版本在 8K 上下文的设备分配实测
-**21.84 GiB**；进程 RSS、文件缓存和驱动额外开销不能
+**144 MiB**，其余是矩阵解码与分块工作区。8K 上下文的设备分配初版实测
+为 **21.84 GiB**；MTP 与补偿工作区启用后为 **22.95 GiB**。进程 RSS、文件缓存和驱动额外开销不能
 与设备分配混为一谈。每增加 8K 上下文，FP32 KV 大约增加 1 GiB。
 
 ## 当前边界
 
 - 纯文本、单请求槽；连续完整前缀可复用。分叉/截断历史重新 prefill，无 SSD 状态缓存。
-- MTP / DFlash2 / `.i4l` 加速镜像尚未接入；请求投机解码会被拒绝。
+- 已接入 MTP；DFlash2 和 `.i4l` 加速镜像未接入。
 - 文件不含视觉塔，本后端不接收图像。它不会把 Flash-Next 视觉权重套用到 27B。
 - 默认 8K；更长上下文需要额外内存与测试。代码中的容量上限不代表该长度已经验证。
 - 仅此 HGN recipe 经验证；其他量化 recipe、GGUF 或原始 safetensors 不能直接传给本后端。
 
-进一步优化应先评估无损的批量 GEMM/量化读取融合，再独立验证 MTP 和 DFlash2
-的格式、状态推进与接受率。每项都应保留上述参考对照和可关闭的性能路径。
+尚未建立全语料困惑度/任务质量基准；数值误差和上述输入的一致性不能等同于全模型
+质量保证。DFlash2 仍需独立验证其卷积、草稿状态与候选筛选，不承诺闭源 Halogen 的性能。

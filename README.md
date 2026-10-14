@@ -12,7 +12,8 @@ Halogen Flash-Next v2 HGN 格式支持、专家计算与 Prefill 优化，以及
 支持 Qwen3.8-Flash-Next（`qwen4_exp`）以及新增的 **Qwen3.8-27B HGN 文本模型**，不是通用模型推理框架。
 
 Qwen3.8-27B 使用独立的稠密/GDN 后端，自动识别 `qwen3.8-27b-p1w4d-d2.hgn`，
-支持文本对话、工具调用、采样和连续前缀复用。构建、配置、精度与性能验证见
+支持文本对话、工具调用、采样、连续前缀复用和经过主模型验证的 MTP 推测解码。
+默认使用补偿预填充，保留 FP32 对照模式。构建、配置、精度与性能验证见
 [Qwen27 适配说明](docs/QWEN27.md)，配置样例为 [windows_qwen27.conf.example](tools/windows_qwen27.conf.example)。
 
 **旧版 w4b / Q4CP 路径仍保留，v2 是新增支持，并非替换旧格式。**

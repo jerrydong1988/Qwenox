@@ -11,7 +11,8 @@ import urllib.request
 
 
 class Client:
-    def __init__(self, port):
+    def __init__(self, port, drafter=0):
+        self.drafter = drafter
         self.socket = socket.create_connection(("127.0.0.1", port), timeout=10)
         self.socket.settimeout(240)
         self.reader = self.socket.makefile("rb")
@@ -27,12 +28,15 @@ class Client:
 
     def gen(self, req, ids, count, suffix="", eos=()):
         self.send(f"GEN {req} {count} {len(eos)} " + " ".join(map(str, eos)) +
-                  f" {len(ids)} " + " ".join(map(str, ids)) + " 0 " + suffix)
+                  f" {len(ids)} " + " ".join(map(str, ids)) + f" {self.drafter} " + suffix)
         tokens = []
+        self.last_logprobs = []
         while True:
             line = self.read().split()
             if line[0] == "T":
                 tokens.append(int(line[2]))
+                if len(line) > 3:
+                    self.last_logprobs.append(float(line[3]))
             if line[0] == "D":
                 assert int(line[1]) == req
                 return tokens, line
@@ -47,6 +51,7 @@ def main():
     ap.add_argument("--engine-port", type=int, default=18870)
     ap.add_argument("--api", default="http://127.0.0.1:18871")
     ap.add_argument("--long", action="store_true", help="also verify 2056-token dense attention and continuation")
+    ap.add_argument("--mtp", action="store_true", help="exercise MTP and expect its capability flag")
     args = ap.parse_args()
     results = []
     def check(name, ok, detail=None):
@@ -54,12 +59,12 @@ def main():
         result = {"test": name, "pass": True, "detail": detail}
         results.append(result)
         print(json.dumps(result, ensure_ascii=False), flush=True)
-    c = Client(args.engine_port)
+    c = Client(args.engine_port, 1 if args.mtp else 0)
     c.send("PING")
     check("ping", c.read() == "PONG")
     c.send("INFO")
     info = c.read().split()
-    check("capabilities", info[:3] == ["I", "0", "0"] and info[10] == "1", info)
+    check("capabilities", info[:3] == ["I", "1" if args.mtp else "0", "0"] and info[10] == "1", info)
     t, d = c.gen(1, [1, 2, 3, 4], 1, eos=[5])
     check("eos-is-not-streamed", not t and d[2] == "done", d)
     t, d = c.gen(2, [248320], 1)

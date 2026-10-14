@@ -2,6 +2,7 @@
 // Included after the common kernels and protocol sampler, before main.
 #include "../../hgn_qwen27.h"
 #include "../qwen27_gemv.h"
+#include "../qwen27_gemm.h"
 
 namespace qwen27 {
 static void check(hipError_t e) {
@@ -30,9 +31,12 @@ __global__ void unpack_matrix(const uint8_t* w,float* out,int rows,int cols){
   if(i>=n)return;
   if constexpr(Dtype==0)out[i]=bf(reinterpret_cast<const uint16_t*>(w)[i]);
   if constexpr(Dtype==6)out[i]=fp8(w[i])*bf(reinterpret_cast<const uint16_t*>(w+n)[i/cols]);
-  if constexpr(Dtype==5){
+  if constexpr(Dtype==5||Dtype==51){
     size_t c=i%cols;const uint8_t* row=w+64+(i/cols)*(cols/2+cols/16);
-    out[i]=reinterpret_cast<const float*>(w)[(row[c/2]>>((c&1)*4))&15]*fp8(row[cols/2+c/16]);
+    float scale;
+    if constexpr(Dtype==51)scale=__half2float(__ushort_as_half(reinterpret_cast<const uint16_t*>(row+cols/2)[c/32]));
+    else scale=fp8(row[cols/2+c/16]);
+    out[i]=reinterpret_cast<const float*>(w)[(row[c/2]>>((c&1)*4))&15]*scale;
   }
 }
 __global__ void embedding_batch(const uint16_t* w,const int* tokens,float* out){
@@ -60,6 +64,7 @@ __global__ void cache_values(const float* v,float* cache,const int* pos){
   int i=blockIdx.x*blockDim.x+threadIdx.x;
   if(i<1024)cache[size_t(*pos)*1024+i]=v[i];
 }
+__global__ void fill_positions(int* positions,int start,int count){int i=threadIdx.x;if(i<count)positions[i]=start+i;}
 __global__ void add_residual(float* x, const float* y, int n) {
   int i = blockIdx.x*blockDim.x+threadIdx.x;
   if (i < n) x[i] += y[i];
@@ -128,7 +133,7 @@ __global__ void attention_output(const float* score,const float* values,const fl
   out[h*256+i]=v/(1+expf(-gate[h*256+i]));
 }
 
-struct Matrix { const uint8_t* data=nullptr; int dtype=0, rows=0, cols=0; };
+struct Matrix { const uint8_t* data=nullptr; int dtype=0, rows=0, cols=0; bool factorizable=false; };
 struct Blas {
   rocblas_handle handle=nullptr;
   Blas(){if(rocblas_create_handle(&handle)!=rocblas_status_success)throw std::runtime_error("rocBLAS initialization failed");}
@@ -149,6 +154,7 @@ struct Layer {
   float *qnorm=nullptr,*knorm=nullptr,*state=nullptr,*history=nullptr,*keys=nullptr,*values=nullptr;
   Matrix qkv,z,a,b,out,q,k,v,up,gate,down;
 };
+#include "54_qwen27_mtp.inc"
 class Model {
   Allocations memory;
   hgn::Checkpoint ck;
@@ -156,27 +162,38 @@ class Model {
   Layer layer[64];
   float *x,*normalized,*tmp,*qkv,*conv,*z,*a,*b,*g,*beta,*attn,*q,*k,*v,*qgate,*scores,*ffgate,*ffup,*logits,*finalnorm;
   Blas blas;
+  std::unique_ptr<qwen27_gemm::Lt> lt;
+  uint16_t *factored=nullptr,*input_hi=nullptr,*input_lo=nullptr;
   float *bx,*bn,*bt,*bqkv,*bc,*bz,*ba,*bb,*bg,*bbe,*bo,*bq,*bk,*bv,*bqg,*bfg,*bfu,*unpacked;
   int* btokens;
   int* device_input;
+  int* batch_positions;
   float *partial_attention,*partial_ml;
   hipStream_t stream=nullptr;
   DecodeGraph decode_graph;
+  std::unique_ptr<Mtp> mtp;
+  float *last_hidden=nullptr,*previous_hidden=nullptr,*hidden_batch=nullptr,*verify_logits=nullptr;
+  float *state_snap=nullptr,*conv_snap=nullptr;
+  int verified_count=0;
 public:
   static constexpr int batch_size=512;
-  int prefill_chunk=256;
+  int prefill_chunk=512;
   bool serial_prefill=false;
+  bool fast_prefill=true;
+  bool mtp_enabled=false;
+  int mtp_gamma=3;
+  bool force_batch=false;
   bool graph_enabled=true;
   int maxctx;
   std::vector<int> history;
   std::string trace;
-  explicit Model(const char* path,int capacity):ck(path),maxctx(capacity) {
+  explicit Model(const char* path,int capacity,bool enable_mtp=false):ck(path),maxctx(capacity) {
     if(maxctx<1||maxctx>262144)throw std::runtime_error("Qwen27 context must be 1..262144");
     auto mat=[&](const std::string& name,int r,int c){
       const auto& t=required(ck,name,{uint64_t(r),uint64_t(c)});
       auto* p=memory.get<uint8_t>(t.data_size);
       check(hipMemcpy(p,t.data,t.data_size,hipMemcpyHostToDevice));
-      return Matrix{p,int(t.dtype),r,c};
+      return Matrix{p,t.dtype==5&&t.qparam==1?51:int(t.dtype),r,c,can_factor(t)};
     };
     auto vec=[&](const std::string& name,std::initializer_list<uint64_t> dims){
       auto host=dequant(required(ck,name,dims));
@@ -223,7 +240,15 @@ public:
     bo=memory.get<float>(batch_size*6144);bq=memory.get<float>(batch_size*6144);bk=memory.get<float>(batch_size*1024);bv=memory.get<float>(batch_size*1024);
     bqg=memory.get<float>(batch_size*6144);bfg=memory.get<float>(batch_size*intermediate);bfu=memory.get<float>(batch_size*intermediate);
     btokens=memory.get<int>(batch_size);unpacked=memory.get<float>(size_t(hidden)*intermediate);
-    device_input=memory.get<int>(2);partial_attention=memory.get<float>(24*32*256);partial_ml=memory.get<float>(24*32*2);
+    device_input=memory.get<int>(2);batch_positions=memory.get<int>(batch_size);partial_attention=memory.get<float>(24*32*256);partial_ml=memory.get<float>(24*32*2);
+    mtp_enabled=enable_mtp;
+    if(enable_mtp){
+      mtp=std::make_unique<Mtp>(ck,embeddings,head,capacity);
+      last_hidden=memory.get<float>(hidden);previous_hidden=memory.get<float>(hidden);
+      hidden_batch=memory.get<float>(batch_size*hidden);verify_logits=memory.get<float>(4*vocab);
+      state_snap=memory.get<float>(size_t(3)*48*48*128*128);
+      conv_snap=memory.get<float>(size_t(3)*48*3*10240);
+    }
     reset();memstats_log("qwen27-loaded");
   }
   void reset(){
@@ -232,12 +257,14 @@ public:
       check(hipMemset(layer[l].history,0,3*10240*4));
     }
     history.clear();
+    if(last_hidden)check(hipMemset(last_hidden,0,hidden*4));
   }
   void mv(const Matrix& w,const float* input,float* output){
     dim3 grid((w.rows+3)/4);
     if(w.dtype==0)qwen27_fast::gemv<0,1><<<grid,128,0,stream>>>(w.data,input,output,w.rows,w.cols);
     else if(w.dtype==5)qwen27_fast::gemv<5,1><<<grid,128,0,stream>>>(w.data,input,output,w.rows,w.cols);
     else if(w.dtype==6)qwen27_fast::gemv<6,1><<<grid,128,0,stream>>>(w.data,input,output,w.rows,w.cols);
+    else if(w.dtype==51)qwen27_fast::gemv<51,1><<<grid,128,0,stream>>>(w.data,input,output,w.rows,w.cols);
     else throw std::runtime_error("unsupported Qwen27 matrix");
   }
   void dump_at(int position,const std::string& name,const float* ptr,size_t n){
@@ -250,20 +277,53 @@ public:
   }
   void dump(const std::string& name,const float* ptr,size_t n){dump_at(int(history.size()),name,ptr,n);}
   void mm(const Matrix& w,const float* input,float* output,int count){
+    // The vocabulary head exceeds the bounded matrix scratch. Always keep its
+    // short batches on GEMV, including when a diagnostic forces batched prefill.
+    if(count<=4&&(!force_batch||w.rows>intermediate)){
+      #define Q27_BATCH(D,P) qwen27_fast::batch<D,P><<<(w.rows+3)/4,128>>>(w.data,input,output,w.rows,w.cols)
+      #define Q27_SIZE(D) if(count==1){Q27_BATCH(D,1);}else if(count==2){Q27_BATCH(D,2);}else if(count==3){Q27_BATCH(D,3);}else{Q27_BATCH(D,4);}
+      if(w.dtype==0){Q27_SIZE(0);}else if(w.dtype==5){Q27_SIZE(5);}else if(w.dtype==6){Q27_SIZE(6);}else if(w.dtype==51){Q27_SIZE(51);}else throw std::runtime_error("invalid Qwen27 matrix dtype");
+      #undef Q27_SIZE
+      #undef Q27_BATCH
+      return;
+    }
+    if(size_t(w.rows)*w.cols>size_t(hidden)*intermediate)
+      throw std::runtime_error("Qwen27 matrix exceeds bounded GEMM scratch");
     dim3 grid(unsigned((size_t(w.rows)*w.cols+255)/256));
+    if(fast_prefill&&w.factorizable&&w.rows>=256){
+      if(!lt){
+        lt=std::make_unique<qwen27_gemm::Lt>();
+        factored=memory.get<uint16_t>(size_t(hidden)*intermediate);
+        input_hi=memory.get<uint16_t>(batch_size*intermediate);
+        input_lo=memory.get<uint16_t>(batch_size*intermediate);
+      }
+      if(w.dtype==0)qwen27_gemm::factor<0><<<grid,256>>>(w.data,factored,w.rows,w.cols);
+      else if(w.dtype==5)qwen27_gemm::factor<5><<<grid,256>>>(w.data,factored,w.rows,w.cols);
+      else if(w.dtype==6)qwen27_gemm::factor<6><<<grid,256>>>(w.data,factored,w.rows,w.cols);
+      size_t n=size_t(count)*w.cols;
+      qwen27_gemm::split<<<unsigned((n+255)/256),256>>>(input,input_hi,input_lo,n);
+      lt->product(factored,input_lo,output,w.rows,count,w.cols,0);
+      lt->product(factored,input_hi,output,w.rows,count,w.cols,1);
+      if(w.dtype!=0)qwen27_gemm::rescale<<<(w.rows*count+255)/256,256>>>(w.data,output,w.dtype,w.rows,w.cols,count);
+      return;
+    }
     if(w.dtype==0)unpack_matrix<0><<<grid,256>>>(w.data,unpacked,w.rows,w.cols);
     else if(w.dtype==5)unpack_matrix<5><<<grid,256>>>(w.data,unpacked,w.rows,w.cols);
     else if(w.dtype==6)unpack_matrix<6><<<grid,256>>>(w.data,unpacked,w.rows,w.cols);
+    else if(w.dtype==51)unpack_matrix<51><<<grid,256>>>(w.data,unpacked,w.rows,w.cols);
     const float one=1,zero=0;
     if(rocblas_sgemm(blas.handle,rocblas_operation_transpose,rocblas_operation_none,
          w.rows,count,w.cols,&one,unpacked,w.cols,input,w.cols,&zero,output,w.rows)!=rocblas_status_success)
       throw std::runtime_error("Qwen27 FP32 GEMM failed");
   }
-  void prefill(const int* tokens,int count,const std::atomic<bool>* cancel=nullptr){
+  void prefill(const int* tokens,int count,const std::atomic<bool>* cancel=nullptr,bool verify=false){
     if(count<1||count>batch_size||history.size()+count>size_t(maxctx))throw std::runtime_error("invalid Qwen27 prefill size");
     for(int i=0;i<count;++i)if(tokens[i]<0||tokens[i]>=vocab)throw std::runtime_error("invalid Qwen27 token");
-    if(serial_prefill||count<=8){for(int i=0;i<count;++i){if(cancel&&*cancel)return;forward(tokens[i],i+1==count||!trace.empty());}return;}
+    if(!verify&&!force_batch&&(serial_prefill||(count<=8&&trace.empty()))){for(int i=0;i<count;++i){if(cancel&&*cancel)return;forward(tokens[i],i+1==count||!trace.empty());}return;}
+    if(verify&&(!mtp||count<2||count>4))throw std::runtime_error("invalid Qwen27 verification batch");
     const int pos=int(history.size());
+    if(verify)fill_positions<<<1,512>>>(batch_positions,pos,count);
+    if(mtp)check(hipMemcpyAsync(previous_hidden,last_hidden,hidden*4,hipMemcpyDeviceToDevice));
     check(hipMemcpy(btokens,tokens,count*sizeof(int),hipMemcpyHostToDevice));
     embedding_batch<<<dim3(20,count),256>>>(reinterpret_cast<const uint16_t*>(embeddings.data),btokens,bx);
     for(int t=0;t<count&&!trace.empty();++t)dump_at(pos+t,"embedding",bx+size_t(t)*hidden,hidden);
@@ -274,9 +334,12 @@ public:
       if(l%4!=3){
         mm(w.qkv,bn,bqkv,count);mm(w.z,bn,bz,count);mm(w.a,bn,ba,count);mm(w.b,bn,bb,count);
         k_gdn_conv_b_serial_math<<<(count*10240+255)/256,256>>>(bqkv,w.conv,w.history,bc,count,10240);
+        const int gl=l-l/4;
+        if(verify)k_convst_snap<<<count-1,256>>>(bqkv,w.history,conv_snap+size_t(gl)*3*10240,count-1,10240,size_t(48)*3*10240);
         k_convst_update<<<40,256>>>(w.history,bqkv,count,10240);
         k_l2norm_qk_b<<<dim3(16,count),128>>>(bc,128,1/sqrtf(128),10240,16);
         k_gdn_gates<<<count,64>>>(ba,bb,w.alog,w.dt,bg,bbe,48,48);
+        if(verify)k_gdn_snap<<<48,512>>>(bc,bg,bbe,w.state,state_snap+size_t(gl)*48*128*128,count-1,10240,size_t(48)*48*128*128);
         k_gdn_verify<<<48,512>>>(bc,bg,bbe,w.state,bc,count,10240);
         gated_norm_batch<<<dim3(48,count),128>>>(bc,bz,w.gnorm,bo);
       }else{
@@ -284,7 +347,12 @@ public:
         prepare_qk<<<dim3(24,count),256>>>(bqkv,w.qnorm,bq,bqg,512,pos);
         prepare_qk<<<dim3(4,count),256>>>(bk,w.knorm,w.keys+size_t(pos)*1024,nullptr,256,pos);
         check(hipMemcpyAsync(w.values+size_t(pos)*1024,bv,size_t(count)*4096,hipMemcpyDeviceToDevice));
-        k_qsa_flash<false,false,float><<<dim3((count+15)/16,24),128>>>(bq,w.keys,w.values,bo,count,256,4,24,nullptr,0,nullptr,nullptr,nullptr,pos,nullptr);
+        if(verify){
+          for(int t=0;t<count;++t){
+            k_qsa_flash<true,false,float,true><<<dim3(32,4),128>>>(bq+size_t(t)*6144,w.keys,w.values,bo+size_t(t)*6144,1,256,4,24,nullptr,0,batch_positions+t,partial_attention,partial_ml);
+            k_qsa_flash_combine<<<dim3(6,4),64>>>(partial_ml,partial_attention,bo+size_t(t)*6144,6,256,batch_positions+t);
+          }
+        }else k_qsa_flash<false,false,float><<<dim3((count+15)/16,24),128>>>(bq,w.keys,w.values,bo,count,256,4,24,nullptr,0,nullptr,nullptr,nullptr,pos,nullptr);
         k_sigmoid_gate<<<(count*6144+255)/256,256>>>(bo,bqg,bo,count*6144);
       }
       mm(w.out,bo,bt,count);add_residual<<<(count*hidden+255)/256,256>>>(bx,bt,count*hidden);
@@ -294,10 +362,20 @@ public:
       mm(w.down,bfg,bt,count);add_residual<<<(count*hidden+255)/256,256>>>(bx,bt,count*hidden);
       for(int t=0;t<count&&!trace.empty();++t)dump_at(pos+t,"layer"+std::to_string(l),bx+size_t(t)*hidden,hidden);
     }
-    for(int t=trace.empty()?count-1:0;t<count;++t){
+    if(mtp)k_rmsnorm_zc_grouped<<<count,256>>>(bx,finalnorm,hidden_batch,hidden,1e-6f,1);
+    if(verify){
+      mm(head,hidden_batch,verify_logits,count);
+      check(hipMemcpyAsync(logits,verify_logits+size_t(count-1)*vocab,vocab*4,hipMemcpyDeviceToDevice));
+    }
+    for(int t=verify?count:(trace.empty()?count-1:0);t<count;++t){
       k_rmsnorm_zc<<<1,256>>>(bx+size_t(t)*hidden,finalnorm,normalized,hidden,1e-6f);
       mv(head,normalized,logits);dump_at(pos+t,"logits",logits,vocab);
     }
+    if(mtp&&!verify){
+      mtp->sync(btokens,hidden_batch,previous_hidden,count,pos,[&](const Matrix& w,const float* in,float* out,int n){mm(w,in,out,n);});
+      check(hipMemcpyAsync(last_hidden,hidden_batch+size_t(count-1)*hidden,hidden*4,hipMemcpyDeviceToDevice));
+    }
+    verified_count=verify?count:0;
     check(hipGetLastError());history.insert(history.end(),tokens,tokens+count);
   }
   void launch_decoder(int token,int pos,bool readout,bool dynamic=false){
@@ -339,8 +417,9 @@ public:
       mv(w.down,ffgate,tmp);add_residual<<<20,256,0,stream>>>(x,tmp,hidden);
       dump("layer"+std::to_string(l),x,hidden);
     }
-    if(readout){
+    if(readout||mtp){
       k_rmsnorm_zc<<<1,256,0,stream>>>(x,finalnorm,normalized,hidden,1e-6f);
+      if(mtp)check(hipMemcpyAsync(last_hidden,normalized,hidden*4,hipMemcpyDeviceToDevice,stream));
       mv(head,normalized,logits);dump("logits",logits,vocab);
     }
     check(hipGetLastError());
@@ -348,6 +427,7 @@ public:
   void forward(int token,bool readout=true){
     int pos=int(history.size());
     if(token<0||token>=vocab||pos>=maxctx)throw std::runtime_error("Qwen27 token/context outside bounds");
+    if(mtp&&pos>0)mtp->step(token,pos-1,last_hidden,false);
     if(graph_enabled&&readout&&trace.empty()){
       if(!decode_graph.executable){
         check(hipStreamCreateWithFlags(&decode_graph.capture,hipStreamNonBlocking));
@@ -376,6 +456,35 @@ public:
     for(float f:host)if(!std::isfinite(f))throw std::runtime_error("nonfinite Qwen27 logits");
     return host;
   }
+  int draft(int token){
+    int result=mtp->step(token,int(history.size())-1,last_hidden,true);
+    dump_at(int(history.size())-1,"mtp-logits",mtp->logits,vocab);return result;
+  }
+  std::vector<int> draft_sequence(int token,int gamma){
+    std::vector<int> result;const float* h=last_hidden;
+    for(int i=0;i<gamma;++i){token=mtp->step(token,int(history.size())-1+i,h,true);result.push_back(token);h=mtp->normalized;}
+    return result;
+  }
+  std::vector<float> verification_scores(){
+    std::vector<float> host(size_t(verified_count)*vocab);
+    check(hipMemcpy(host.data(),verify_logits,host.size()*4,hipMemcpyDeviceToHost));
+    for(float f:host)if(!std::isfinite(f))throw std::runtime_error("nonfinite verification logits");
+    return host;
+  }
+  void commit_verified(int accepted){
+    if(!mtp||accepted<1||accepted>verified_count)throw std::runtime_error("invalid verification commit");
+    int start=int(history.size())-verified_count;
+    if(accepted<verified_count){
+      for(int l=0;l<64;++l)if(l%4!=3){int gl=l-l/4;
+        check(hipMemcpyAsync(layer[l].state,state_snap+(size_t(accepted-1)*48+gl)*48*128*128,48*128*128*4,hipMemcpyDeviceToDevice));
+        check(hipMemcpyAsync(layer[l].history,conv_snap+(size_t(accepted-1)*48+gl)*3*10240,3*10240*4,hipMemcpyDeviceToDevice));
+      }
+    }
+    mtp->sync(btokens,hidden_batch,previous_hidden,accepted,start,[&](const Matrix& w,const float* in,float* out,int n){mm(w,in,out,n);});
+    check(hipMemcpyAsync(last_hidden,hidden_batch+size_t(accepted-1)*hidden,hidden*4,hipMemcpyDeviceToDevice));
+    check(hipMemcpyAsync(logits,verify_logits+size_t(accepted-1)*vocab,vocab*4,hipMemcpyDeviceToDevice));
+    history.resize(start+accepted);verified_count=0;
+  }
 };
 static double milliseconds(std::chrono::steady_clock::time_point start) {
   return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
@@ -386,7 +495,7 @@ static void generate(Model& m,serve::Conn& c,serve::GenReq g) {
   std::unique_lock<std::mutex> lock(model_mutex,std::try_to_lock);
   auto finish=[&](const std::string& text){c.in_flight=false;if(!c.send(text))sock_shutdown(c.fd);};
   auto error=[&](){finish("D "+std::to_string(g.req)+" error "+std::to_string(g.ids.size())+" 0 0 0\n");};
-  if(!lock.owns_lock()||g.reject||g.drafter>0||!g.mrope_grids.empty()||g.vimg||
+  if(!lock.owns_lock()||g.reject||g.drafter>1||(g.drafter==1&&!m.mtp_enabled)||!g.mrope_grids.empty()||g.vimg||
      g.ids.empty()||g.ids.size()>size_t(m.maxctx)||g.max_tokens<1||
      uint64_t(g.ids.size())+uint64_t(g.max_tokens)-1>uint64_t(m.maxctx)) {error();return;}
   for(int id:g.ids)if(id<0||id>=vocab){error();return;}
@@ -417,23 +526,49 @@ static void generate(Model& m,serve::Conn& c,serve::GenReq g) {
     serve::HostSampler sampler{};
     sampler.temp=g.temp;sampler.top_p=g.top_p;sampler.min_p=g.min_p;sampler.top_k=g.top_k;
     sampler.rng=g.seed;sampler.presence=g.presence;sampler.frequency=g.frequency;sampler.bias=g.bias;
-    int generated=0;
+    int generated=0,drafted=0,accepted=0,rounds=0;
     std::string reason="length";
-    for(int i=0;i<g.max_tokens&&!c.cancel;++i){
+    auto emit=[&](int token,float lp){
+      std::ostringstream out;out<<"T "<<g.req<<' '<<token;if(g.logprobs)out<<' '<<lp;out<<'\n';
+      if(!c.send(out.str())){c.cancel=true;return false;}++generated;return true;
+    };
+    const bool speculative=m.mtp_enabled&&g.drafter!=0;
+    while(generated<g.max_tokens&&!c.cancel){
       auto scores=m.read_logits();float lp=0;
       int token=g.sample?sampler.sample(scores,&lp):int(std::max_element(scores.begin(),scores.end())-scores.begin());
       if(std::find(g.eos.begin(),g.eos.end(),token)!=g.eos.end()){reason="done";break;}
-      std::ostringstream out;out<<"T "<<g.req<<' '<<token;
-      if(g.logprobs)out<<' '<<lp;
-      out<<'\n';
-      if(!c.send(out.str())){c.cancel=true;break;}
-      ++generated;
-      if(i+1<g.max_tokens&&!c.cancel)m.forward(token);
+      if(!emit(token,lp)||generated==g.max_tokens)break;
+      if(speculative&&g.max_tokens-generated>1&&m.history.size()+2<=size_t(m.maxctx)){
+        int gamma=std::min({m.mtp_gamma,g.max_tokens-generated-1,int(m.maxctx-m.history.size())-1});
+        auto proposals=m.draft_sequence(token,gamma);std::vector<int> batch{token};batch.insert(batch.end(),proposals.begin(),proposals.end());
+        m.prefill(batch.data(),int(batch.size()),nullptr,true);auto verify=m.verification_scores();
+        int keep=1;bool stop=false;std::vector<float> proposal_lp(gamma,0);
+        for(int j=0;j<gamma;++j){
+          auto begin=verify.begin()+size_t(j)*vocab;
+          int expected;
+          if(g.sample){
+            // Draw only from the target distribution. A rejected draft restores
+            // RNG and emission counts so the next serial step repeats this draw.
+            // Accepted drafts consume exactly one ordinary target sample each.
+            auto rng=sampler.rng;auto hist=sampler.hist;
+            std::vector<float> target(begin,begin+vocab);
+            expected=sampler.sample(target,&proposal_lp[j]);
+            if(proposals[j]!=expected){sampler.rng=rng;sampler.hist=std::move(hist);break;}
+          }else expected=int(std::max_element(begin,begin+vocab)-begin);
+          if(proposals[j]!=expected)break;
+          if(std::find(g.eos.begin(),g.eos.end(),expected)!=g.eos.end()){stop=true;break;}
+          ++keep;
+        }
+        m.commit_verified(keep);drafted+=gamma;++rounds;accepted+=keep-1;
+        for(int j=0;j<keep-1&&!c.cancel;++j)emit(proposals[j],proposal_lp[j]);
+        if(stop){reason="done";break;}
+      }else m.forward(token);
     }
     if(c.cancel){reason="cancel";m.reset();}
     std::ostringstream done;
     done<<"D "<<g.req<<' '<<reason<<' '<<g.ids.size()<<' '<<generated<<' '<<prefill_ms<<' '
-        <<milliseconds(decode_start)<<" 0 0 0 "<<cached<<" 0\n";
+        <<milliseconds(decode_start)<<' '<<int(speculative)<<' '<<rounds<<' '<<rounds+accepted<<' '<<cached<<' '<<drafted<<'\n';
+    if(speculative)fprintf(stderr,"qwen27 MTP: drafted=%d accepted=%d rounds=%d\n",drafted,accepted,rounds);
     active_requests=0;finish(done.str());
   }catch(const std::exception& e){
     fprintf(stderr,"qwen27 request: %s\n",e.what());
@@ -449,7 +584,7 @@ static void connection(Model& m,sockfd_t fd) {
     std::istringstream in(line);std::string verb;in>>verb;
     if(verb=="PING"){if(!c.send("PONG\n"))break;}
     else if(verb=="INFO"){
-      std::ostringstream out;out<<"I 0 0 "<<m.maxctx<<" 1 0 0 0 0 0 1 "<<m.maxctx<<" 1 1 "<<m.maxctx<<'\n';
+      std::ostringstream out;out<<"I "<<int(m.mtp_enabled)<<" 0 "<<m.maxctx<<' '<<m.mtp_gamma+1<<' '<<int(m.mtp_enabled)<<' '<<int(m.mtp_enabled)<<" 0 0 0 1 "<<m.maxctx<<" 1 1 "<<m.maxctx<<'\n';
       if(!c.send(out.str()))break;
     }else if(verb=="CSTAT"){
       if(!c.send("C 1 "+std::to_string(active_requests.load())+" 0 0\n"))break;
@@ -491,15 +626,18 @@ static int listen(Model& m,const std::string& host,int port){
   if(bind(fd,reinterpret_cast<sockaddr*>(&addr),sizeof addr)||::listen(fd,16)){
     sock_close(fd);throw std::runtime_error("engine bind/listen failed");
   }
-  fprintf(stderr,"qwen27: listening on %s:%d (context %d, one slot, serial)\n",host.c_str(),port,m.maxctx);
+  fprintf(stderr,"qwen27: listening on %s:%d (context %d, one slot, %s, gamma %d, prefill %s/%d)\n",host.c_str(),port,m.maxctx,m.mtp_enabled?"MTP":"serial",m.mtp_enabled?m.mtp_gamma:0,m.fast_prefill?"compensated":"FP32",m.prefill_chunk);
   for(;;){sockfd_t client=accept(fd,nullptr,nullptr);if(client<0)continue;
     setsockopt(client,IPPROTO_TCP,TCP_NODELAY,reinterpret_cast<const char*>(&one),sizeof one);
     std::thread(connection,std::ref(m),client).detach();}
 }
 static int main(int argc,char** argv){
   try{
-    int capacity=8192,gen=8,port=8730,prefill_chunk=256;bool serving=false,serial_prefill=false,graph_enabled=true;
+    int capacity=8192,gen=8,port=8730,prefill_chunk=512,mtp_probe=-1,mtp_gamma=3;bool serving=false,serial_prefill=false,graph_enabled=true,fast_prefill=true,mtp_enabled=false,force_batch=false;
     if(const char* configured=getenv("GDEC_PREFILL_CHUNK"))if(*configured)prefill_chunk=std::stoi(configured);
+    if(const char* configured=getenv("GDEC_QWEN27_MTP")){std::string value=configured;if(value!="0"&&value!="1")throw std::runtime_error("GDEC_QWEN27_MTP must be 0 or 1");mtp_enabled=value=="1";}
+    if(const char* configured=getenv("GDEC_QWEN27_MTP_GAMMA"))if(*configured)mtp_gamma=std::stoi(configured);
+    if(const char* configured=getenv("GDEC_QWEN27_PREFILL_MODE")){std::string value=configured;if(value!="fp32"&&value!="compensated")throw std::runtime_error("invalid Qwen27 prefill mode");fast_prefill=value=="compensated";}
     std::string host="127.0.0.1",trace;std::vector<int> tokens;
     auto parse_tokens=[&](std::string s){std::replace(s.begin(),s.end(),',',' ');std::istringstream in(s);int t;while(in>>t)tokens.push_back(t);if(!in.eof())throw std::runtime_error("invalid token list");};
     for(int i=2;i<argc;++i){
@@ -508,6 +646,12 @@ static int main(int argc,char** argv){
       if(key=="--serve")serving=true;
       else if(key=="--qwen27-serial-prefill")serial_prefill=true;
       else if(key=="--qwen27-no-graph")graph_enabled=false;
+      else if(key=="--qwen27-mtp")mtp_enabled=true;
+      else if(key=="--qwen27-no-mtp")mtp_enabled=false;
+      else if(key=="--qwen27-mtp-gamma")mtp_gamma=std::stoi(next());
+      else if(key=="--qwen27-mtp-probe"){mtp_probe=std::stoi(next());mtp_enabled=true;}
+      else if(key=="--qwen27-force-batch")force_batch=true;
+      else if(key=="--qwen27-prefill-mode"){auto mode=next();if(mode!="fp32"&&mode!="compensated")throw std::runtime_error("invalid Qwen27 prefill mode");fast_prefill=mode=="compensated";}
       else if(key=="--qwen27-prefill-chunk")prefill_chunk=std::stoi(next());
       else if(key=="--tokens")parse_tokens(next());
       else if(key=="--tokens-file"){std::ifstream f(next());if(!f)throw std::runtime_error("tokens file unreadable");std::string s;while(std::getline(f,s))parse_tokens(s);}
@@ -524,19 +668,23 @@ static int main(int argc,char** argv){
     sockaddr_in address{};
     if(serving&&!engine_net::address(host,port,&address))throw std::runtime_error("invalid engine listen address");
     if(prefill_chunk<1||prefill_chunk>Model::batch_size)throw std::runtime_error("Qwen27 prefill chunk must be 1..512");
+    if(mtp_gamma<1||mtp_gamma>3)throw std::runtime_error("Qwen27 MTP gamma must be 1..3");
     validate_header(argv[1]);
 #ifdef _WIN32
-    _putenv_s("GDEC_DRAFTER","serial");
+    _putenv_s("GDEC_DRAFTER",mtp_enabled?"mtp":"serial");
 #else
-    setenv("GDEC_DRAFTER","serial",1);
+    setenv("GDEC_DRAFTER",mtp_enabled?"mtp":"serial",1);
 #endif
     check(hipSetDevice(0));
     memstats_capture_hip_baseline();
-    Model model(argv[1],capacity);model.trace=trace;model.serial_prefill=serial_prefill;model.graph_enabled=graph_enabled;model.prefill_chunk=prefill_chunk;
+    Model model(argv[1],capacity,mtp_enabled);model.trace=trace;model.serial_prefill=serial_prefill;model.graph_enabled=graph_enabled;model.prefill_chunk=prefill_chunk;model.fast_prefill=fast_prefill;model.force_batch=force_batch;
+    model.mtp_gamma=mtp_gamma;
     if(serving)return listen(model,host,port);
+    if(mtp_enabled&&gen>0)fprintf(stderr,"qwen27: CLI --gen uses serial target diagnostics; MTP generation is available with --serve\n");
     auto start=std::chrono::steady_clock::now();
     for(size_t i=0;i<tokens.size();){int count=int(std::min(tokens.size()-i,size_t(model.prefill_chunk)));model.prefill(tokens.data()+i,count);i+=count;}
     check(hipDeviceSynchronize());double prefill=milliseconds(start);
+    if(mtp_probe>=0){if(mtp_probe>=vocab)throw std::runtime_error("invalid MTP probe token");printf("mtp proposal %d\n",model.draft(mtp_probe));}
     start=std::chrono::steady_clock::now();
     for(int i=0;i<gen;++i){auto values=model.read_logits();int id=int(std::max_element(values.begin(),values.end())-values.begin());
       printf("%s%d",i?",":"",id);fflush(stdout);if(i+1<gen)model.forward(id);}
