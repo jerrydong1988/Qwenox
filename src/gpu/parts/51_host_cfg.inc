@@ -2536,6 +2536,9 @@ static void gen_one(GpuModel& m, Conn& c, GenReq g,
     // of the turn together with the final state, where only the pages no
     // cached file holds yet are written (content-addressed, shared).
     std::vector<size_t> cuts;
+    // A full recompute starts at zero; its old LCP must not filter out
+    // restart points in the newly ingested prefix.
+    const size_t prefill_base = cont ? mcp : 0;
     // Keep one chunk-aligned restart point for a retry of the same prompt.
     // A prompt-end checkpoint cannot itself be matched (no saved logits).
     // Alignment preserves the ordinary bulk prefill chunk boundaries; the
@@ -2546,14 +2549,14 @@ static void gen_one(GpuModel& m, Conn& c, GenReq g,
       const char* chunk_env = getenv("GDEC_PREFILL_CHUNK");
       const size_t chunk = chunk_env ? (size_t)std::max(1, atoi(chunk_env)) : 8192;
       const size_t cut = ((g.ids.size() - 1) / chunk) * chunk;
-      if (cut > mcp && cut >= 4096) cuts.push_back(cut);
+      if (cut > prefill_base && cut >= 4096) cuts.push_back(cut);
     }
     if (!kvs.dir.empty() || rckpt::enabled()) {
       for (size_t cc : g.snaps)
-        if (cc > mcp && cc < g.ids.size() && cc >= kvs.min_tokens)
+        if (cc > prefill_base && cc < g.ids.size() && cc >= kvs.min_tokens)
           cuts.push_back(cc);
       for (size_t cc : {g.snap2, g.snap})
-        if (cc > mcp && cc < g.ids.size() && cc >= kvs.min_tokens)
+        if (cc > prefill_base && cc < g.ids.size() && cc >= kvs.min_tokens)
           cuts.push_back(cc);
     }
     std::sort(cuts.begin(), cuts.end());
@@ -2599,7 +2602,7 @@ static void gen_one(GpuModel& m, Conn& c, GenReq g,
     const auto pre_ingest_started = std::chrono::steady_clock::now();
     for (size_t cc : cuts) {
       std::vector<int> seg(g.ids.begin() + done_upto, g.ids.begin() + cc);
-      cur = m.prefill_batch(seg, (int)done_upto);
+      cur = m.prefill_batch(seg, (int)done_upto, true, false, &cancel);
       hist.assign(g.ids.begin(), g.ids.begin() + cc);
       // The segment leaves MTP position cc-1 pending (mtp_pos == pos-1,
       // d_R == h_{cc-1}): checkpoint that lockstep state, then pair h_{cc-1}
@@ -2614,7 +2617,7 @@ static void gen_one(GpuModel& m, Conn& c, GenReq g,
       m.yield_point();  // consistent state between segments
     }
     std::vector<int> seg(g.ids.begin() + done_upto, g.ids.end());
-    cur = m.prefill_batch(seg, (int)done_upto);
+    cur = m.prefill_batch(seg, (int)done_upto, true, false, &cancel);
     const auto pre_ingest_finished = std::chrono::steady_clock::now();
     m.prog_total = 0;
     m.mtp_tap_capture = false;  // decode/verify must not capture taps
@@ -2946,6 +2949,16 @@ static void gen_one(GpuModel& m, Conn& c, GenReq g,
       if (hist.size() >= kvs.min_tokens) kvsnap::capture(m, hist, mtp_live, pend);
       kvsnap::commit(m, hist, pend);
     }
+  } catch (const ReqCancelled& e) {
+    fprintf(stderr, "%s serve: req %lld %s\n", log_ts(), (long long)g.req,
+            e.what());
+    m.prog_total = 0;
+    m.mtp_tap_capture = m.spec_snap = m.ngram_verify_active = false;
+    m.reset_state();
+    hist.clear();
+    mtp_live = false;
+    snprintf(db, sizeof db, "D %lld cancel 0 0 0.0 0.0\n", (long long)g.req);
+    finish(db);
   } catch (const std::exception& e) {
     // prefill/decode failure, or KvOverflow (pool exhausted by concurrent
     // requests: this one is the later): the partial state is unknown, so
