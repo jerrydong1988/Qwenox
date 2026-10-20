@@ -48,6 +48,7 @@
 #include "json_py.h"
 #include "reqstat.h"
 #include "reqstat_read.h"
+#include "snap_cuts.h"
 #include "live_stats.h"
 #include "tokenizer.h"
 #include "toolparse.h"
@@ -2147,59 +2148,6 @@ class ThinkSplitter {
     size_t rpos_ = 0, r_end_ = 0, cpos_ = 0;
     bool split_ = false, content_started_ = false;
 };
-
-// Semantic boundary hints (SNAPS): token positions where a future
-// re-rendered prompt is likely to share a prefix with this one — the end of
-// every earlier message and the end of the last message's content (just
-// before its closing tag). The engine keeps cheap RAM checkpoints at these
-// cuts, which is what makes edit-and-resend and multi-turn retokenization
-// wobble hit the cache instead of re-prefilling. A cut is only sent when its
-// character boundary is an exact token start in the final ids (`starts` =
-// each id's byte offset in `text`), so every hint is a real token boundary of
-// this prompt. Cuts stop at the first image: a prefix without image tokens is
-// the same KV for text and vision requests, one past it is not.
-std::vector<long long> compute_snap_cuts(const json& messages,
-                                         chat_template::Options opts,
-                                         const std::string& text,
-                                         const std::vector<int>& ids,
-                                         const std::vector<size_t>& starts) {
-    std::vector<size_t> cut_chars;
-    opts.add_generation_prompt = nullptr;  // prefix renders stop at message ends
-    for (size_t k = 1; k < messages.size(); k++) {
-        json prefix = json::array();
-        for (size_t i = 0; i < k; i++) prefix.push_back(messages[i]);
-        chat_template::RenderResult pr =
-            chat_template::render_chat_template(&prefix, opts);
-        // Only exact char prefixes of the full render are stable boundaries
-        // (tool-role rendering depends on the NEXT message, so not every
-        // message end qualifies).
-        if (pr.ok && pr.text.size() < text.size() &&
-            text.compare(0, pr.text.size(), pr.text) == 0)
-            cut_chars.push_back(pr.text.size());
-    }
-    // End of the last message's content = just before its closing <|im_end|>.
-    chat_template::RenderResult ng =
-        chat_template::render_chat_template(&messages, opts);
-    if (ng.ok && ng.text.size() <= text.size() &&
-        text.compare(0, ng.text.size(), ng.text) == 0) {
-        const size_t tail = ng.text.rfind("<|im_end|>");
-        if (tail != std::string::npos) cut_chars.push_back(tail);
-    }
-    std::sort(cut_chars.begin(), cut_chars.end());
-    cut_chars.erase(std::unique(cut_chars.begin(), cut_chars.end()),
-                    cut_chars.end());
-    std::vector<long long> cuts;
-    if (cut_chars.empty()) return cuts;
-    const size_t n_text = static_cast<size_t>(
-        std::find_if(ids.begin(), ids.end(), is_pad_id) - ids.begin());
-    size_t ti = 0;
-    for (size_t cc : cut_chars) {
-        while (ti < n_text && starts[ti] < cc) ti++;
-        if (ti < n_text && starts[ti] == cc && ti > 0) cuts.push_back((long long)ti);
-    }
-    if (cuts.size() > 8) cuts.erase(cuts.begin(), cuts.end() - 8);
-    return cuts;
-}
 
 // POST /v1/chat/completions
 void handle_chat(const http::Request& q, http::Response* r, http::Stream* st) {

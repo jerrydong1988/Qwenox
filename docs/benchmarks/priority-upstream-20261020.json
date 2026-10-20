@@ -1,0 +1,137 @@
+{
+  "date": "2026-10-20",
+  "branch": "codex/upstream-priority-20261020",
+  "source_base": "8199e51463732c0d31398fa3c1c39ad99e5a6c6d",
+  "upstream_sources": {
+    "prompt_cancellation": "2e8e30efe1cb289acaa7827ea177d06594c22594",
+    "checkpoint_filter": "f18286b",
+    "snap_cuts": "9b7067ba01efcd868413733bd3eed542cfab70cc"
+  },
+  "toolchain": "TheRock 10.0.0 gfx1151, Visual Studio 2022 BuildTools; unchanged precision policy",
+  "binaries": {
+    "build/gdec-win.exe": "8340575c45bcd01e203b06cdf5c36cc813c1c2de75dea1da9b17a7b286adf1e6",
+    "build/gdec-api-win.exe": "ee5cbfb91260800fed86d37fb856a3490bcd88800096d4c8d9d624e07f741237",
+    "build/baseline-gdec-win.exe": "767854eb4c0112fd7003caf6ec71318c1f74ac9e0a44c3f89881f964ac5a8da2",
+    "build/baseline-gdec-api-win.exe": "0a7e887f51fa0e1b7e1c600aa92e989a5720d69cde42cc6fbf35aa3224b9790a"
+  },
+  "cpu": {
+    "snap_equivalence": {
+      "cases": 10013,
+      "skipped": 0,
+      "failures": 0
+    },
+    "snap_idle_benchmark": {
+      "messages": 401,
+      "runs_per_implementation": 20,
+      "old_ms": 33.659,
+      "new_ms": 1.402,
+      "scope": "host-only cut computation, not inference throughput"
+    },
+    "api_assertions": 90,
+    "tool_failure_assertions": 458,
+    "disconnect_assertions": 49,
+    "capacity_cases": 3,
+    "late_engine_recovery_groups": 6,
+    "cancel_timeout_suite": true,
+    "webp_cases": 30,
+    "template_compatibility_cases": 796,
+    "qwen27_cli_negative_cases": 10,
+    "strict_host_warnings": true,
+    "shell_syntax": true
+  },
+  "flash_next": {
+    "context": 262144,
+    "kv_pool_tokens": 524288,
+    "prefill_chunk": 8192,
+    "kv": "BF16",
+    "spec_precision": "aligned",
+    "mtp_gamma": 2,
+    "exact_ht_dequant": true,
+    "rckpt_max": 2,
+    "checkpoint": {
+      "before_cached": 0,
+      "after_cached": 4096,
+      "restore_matches_same_split_cold_tokens_and_logprobs": true,
+      "mtp_retained": true,
+      "restore_ms": 1175.8,
+      "cold_ms": 4802.7
+    },
+    "parity": {
+      "requests_per_binary": 24,
+      "cases": 4,
+      "modes": [
+        "greedy",
+        "fixed-seed sampling"
+      ],
+      "concurrent_waves": 2,
+      "cross_binary_reference_requests": 8,
+      "cross_binary_reference_tokens": 512,
+      "all_tokens_logprobs_and_finish_equal": true
+    },
+    "cancel": {
+      "baseline-two-cancel": {
+        "cancel_seconds": 20.06300000002375,
+        "max_progress": 32768,
+        "total": 32768,
+        "disconnect_peer_seconds": 12.0
+      },
+      "candidate-two-cancel": {
+        "cancel_seconds": 2.39000000001397,
+        "max_progress": 8192,
+        "total": 32768,
+        "disconnect_peer_seconds": 2.35999999998603
+      },
+      "candidate-disconnect-cleanup": {
+        "cancel_seconds": 2.422000000020489,
+        "max_progress": 8192,
+        "total": 32768,
+        "disconnect_peer_seconds": 4.797000000020489
+      }
+    },
+    "api_smoke": {
+      "images_32_sse": true,
+      "images_33_rejected": true,
+      "tool_call_after_rejection": true,
+      "responses_sse": true,
+      "disconnect_worker_cleanup_observed": true
+    }
+  },
+  "qwen27": {
+    "q27-mtp": {
+      "protocol_checks": 13,
+      "api_checks": 7,
+      "context": 8192,
+      "prefill_mode": "compensated",
+      "prefill_chunk": 512
+    },
+    "q27-dflash": {
+      "protocol_checks": 13,
+      "api_checks": 7,
+      "context": 8192,
+      "prefill_mode": "compensated",
+      "prefill_chunk": 512
+    }
+  },
+  "deployment": {
+    "replaced": false,
+    "protected_files": 11,
+    "all_hashes_unchanged": true
+  },
+  "limits": [
+    "Windows runtime only; Linux build scripts syntax-checked",
+    "No two simultaneous full-262144-token stress test",
+    "No new general model-quality or BF16-reference corpus evaluation",
+    "Timing figures are scenario-specific, not a general throughput claim"
+  ],
+  "source_sha256": {
+    "build.sh": "cf28bcd5eb230fe812d1a035f15a6a9303eaeee6fb7a53ede0730bfbdc66eb83",
+    "build_win.sh": "e7041515333371b7446f12fac62a43d615fed1ded27881152a5c339dcdba0bd9",
+    "src/api/main.cpp": "0d8e5bc47e7c6a443cd843065ba44f2e3509467aaa1b2256650e5f9e44dd3af5",
+    "src/api/snap_cuts.cpp": "7da8c4d7ee958263b9bc680d079d8c5c1981d1306d6d950493841c5bf6fd0e66",
+    "src/api/snap_cuts.h": "98d8404dd9c2cdd7019bece6e1ec651b5fee6c670deef2ed72562383fca9d8c5",
+    "src/api/snap_cuts_test.cpp": "3b42052d15aa3d36f22a53bbfd1fdfcdb4fb4d843fef0bcdf34009f96ce30ff0",
+    "src/gpu/parts/40_model.inc": "21c856ad28d0e8e51a7b9124feb00827380890a52f2cb03af39ad4d0a38a076e",
+    "src/gpu/parts/51_host_cfg.inc": "ccccde5f88483a8fd242ebce5cab9a782981b8d7aee0ea5bf5be4cc26465fe3f",
+    "tools/upstream_priority_live_test.py": "453996aba3dd84b2703ebf31e480b036f8818421c47b346663c848612aec92f9"
+  }
+}

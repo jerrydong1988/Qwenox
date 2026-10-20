@@ -24,6 +24,12 @@ struct KvOverflow : std::runtime_error {
   using std::runtime_error::runtime_error;
 };
 
+// Prompt-only cancellation at a completed chunk boundary. Speculative verify
+// calls leave the per-call flag null and keep their existing rollback boundary.
+struct ReqCancelled : std::runtime_error {
+  using std::runtime_error::runtime_error;
+};
+
 struct GpuModel {
 
   // Diagnostic-only, serve prompt / one slot. Timings are same-stream intervals,
@@ -5783,7 +5789,7 @@ struct GpuModel {
   }
 
   int prefill_batch(const std::vector<int>& tokens, int base = 0, bool final = true,
-                    bool quiet = false) {
+                    bool quiet = false, const std::atomic<bool>* cancel = nullptr) {
     int N = (int)tokens.size();
     int id = -1;
     int skipped_heads = 0;
@@ -5818,6 +5824,10 @@ struct GpuModel {
     chunk_prefetch = prefetch.get();
 #endif
     for (int off = 0; off < N;) {
+      // A peer may bind the shared model while this call yields. Keep its
+      // cancellation flag on the call stack, independent of the bound slot.
+      if (cancel && cancel->load(std::memory_order_relaxed))
+        throw ReqCancelled("prefill aborted: client gone");
       const auto wall_start = std::chrono::steady_clock::now();
       int rem = N - off;
       // Absorb a small tail into this chunk instead of running a tiny final
@@ -5874,6 +5884,8 @@ struct GpuModel {
         }
       }
       off += n;
+      if (cancel && cancel->load(std::memory_order_relaxed))
+        throw ReqCancelled("prefill aborted: client gone");
       const auto wall_mtp = std::chrono::steady_clock::now();
       // Concurrent serve: prompt prefill hands the GPU over between chunks
       // (only persistent slot state is live here; spec verify never yields).
