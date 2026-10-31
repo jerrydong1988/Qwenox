@@ -178,6 +178,7 @@ static bool ple_uring_ready() {
 // g_ple_foff + (addrs[i] - table_va) 读入 staging + i*g_ple_rb；任何失败/短读
 // 立即 fatal，不做半途回退。
 struct PleWin {
+  std::mutex run_mu;
   HANDLE fh = INVALID_HANDLE_VALUE;
   HANDLE iocp = nullptr;
   static constexpr size_t DEPTH = 512;
@@ -276,6 +277,7 @@ struct PleWin {
 
   void run(const uint64_t* addrs, uint8_t* staging, uint64_t table_va,
            size_t n) {
+    std::lock_guard<std::mutex> lock(run_mu);
     static const bool pages = [] {
       const char* value = getenv("GDEC_PLE_PAGE_IO");
       return value && !strcmp(value, "1");
@@ -375,15 +377,52 @@ struct PleWin {
   }
 };
 
-static PleWin g_ple_win;
-
+// One independent file/IOCP per pump. Decode never shares a completion
+// queue with prefetch, and each request/window buffer owns its own pool.
+struct PleWinReaders {
+  std::vector<std::unique_ptr<PleWin>> readers;
+  std::mutex run_mu;
+  bool setup(const char* path) {
+    int count = 8;
+    if (const char* e = getenv("GDEC_PLE_RINGS")) count = std::max(1, std::min(16, atoi(e)));
+    readers.clear();
+    for (int i = 0; i < count; ++i) {
+      auto r = std::make_unique<PleWin>();
+      if (!r->setup(path)) break;
+      readers.push_back(std::move(r));
+    }
+    return !readers.empty();
+  }
+  void run(const uint64_t* addresses, uint8_t* staging, uint64_t table, size_t rows) {
+    std::lock_guard<std::mutex> lock(run_mu);
+    const size_t count = std::min(readers.size(), std::max<size_t>(1, (rows + 511) / 512));
+    if (!count) throw std::runtime_error("PLE reader pool unavailable");
+    if (count == 1) return readers[0]->run(addresses, staging, table, rows);
+    std::vector<std::thread> workers;
+    std::vector<std::exception_ptr> errors(count);
+    workers.reserve(count);
+    try {
+      for (size_t i = 0; i < count; ++i) workers.emplace_back([&, i] {
+        try {
+          const size_t begin = rows * i / count, end = rows * (i + 1) / count;
+          readers[i]->run(addresses + begin, staging + begin * g_ple_rb, table, end - begin);
+        } catch (...) { errors[i] = std::current_exception(); }
+      });
+    } catch (...) {
+      for (auto& worker : workers) worker.join();
+      throw;
+    }
+    for (auto& worker : workers) worker.join();
+    for (const auto& error : errors) if (error) std::rethrow_exception(error);
+  }
+};
+static PleWin g_ple_win;  // synchronous decode only
+static PleWinReaders g_ple_win_prefill;
 static void ple_uring_open(const char* path) {
-  // 名字沿用 Linux 版本；Windows 下建立 IOCP 句柄
-  g_ple_win.setup(path);
+  if (g_ple_win.setup(path)) g_ple_win_prefill.setup(path);
 }
-
-static bool ple_uring_ready() { return g_ple_win.ok(); }
-#define PLE_PUMP g_ple_win
+static bool ple_uring_ready() { return g_ple_win.ok() && !g_ple_win_prefill.readers.empty(); }
+#define PLE_PUMP g_ple_win_prefill
 
 struct PleWinPrefetch {
   struct Buffer {
@@ -392,7 +431,7 @@ struct PleWinPrefetch {
     hipEvent_t consumed = nullptr;
     bool used = false;
   };
-  PleWin reader;
+  PleWinReaders reader;
   std::array<Buffer, 2> buffers;
   std::unique_ptr<ple_prefetch::Queue> queue;
   size_t slot = 0;
@@ -427,7 +466,7 @@ struct PleWinPrefetch {
           Buffer& buffer = buffers[buffer_index];
           if (buffer.used) CK(hipEventSynchronize(buffer.consumed));
         });
-    fprintf(stderr, "ple_prefetch: enabled (2 x %.1f MiB pinned staging)\n",
+    fprintf(stderr, "ple_prefetch: enabled (2 x %.1f MiB pinned staging, independent IOCP pool)\n",
             (double)capacity * 16 * hash.row_bytes / (1024 * 1024));
     return true;
   }
@@ -551,9 +590,11 @@ struct KvPagePool {
 struct KvSeqTable {
   std::vector<int> tab;
   int mapped = 0;
+  bool identity = true;
   void init(int lpages, int guard) {
     tab.assign((size_t)lpages, guard);
     mapped = 0;
+    identity = true;
   }
   int rows() const { return mapped * KV_PAGE; }
   // Back rows [0, end). false: end beyond the table or pool exhausted (pages
@@ -564,6 +605,7 @@ struct KvSeqTable {
     while (mapped < need) {
       const int p = pool.alloc();
       if (p < 0) return false;
+      if (p != mapped) identity = false;
       tab[(size_t)mapped++] = p;
     }
     return true;
@@ -577,6 +619,7 @@ struct KvSeqTable {
       tab[(size_t)mapped] = pool.guard();
       n++;
     }
+    if (!mapped) identity = true;
     return n;
   }
   // A3: take a reference on the pages holding rows [0, pos) (a checkpoint).
@@ -597,12 +640,16 @@ struct KvSeqTable {
     trim(pool, 0);
     for (size_t i = 0; i < pages.size(); i++) tab[i] = pages[i];
     mapped = (int)pages.size();
+    identity = true;
+    for (int i = 0; i < mapped; ++i)
+      if (tab[(size_t)i] != i) { identity = false; break; }
   }
   // A3 copy-on-write: logical page lp now maps fresh page p (already holding
   // a copy); the shared original loses the live reference.
   void replace(KvPagePool& pool, int lp, int p) {
     const int old = tab[(size_t)lp];
     tab[(size_t)lp] = p;
+    if (p != lp) identity = false;
     pool.unref(old);
   }
 };
@@ -962,6 +1009,28 @@ __global__ void k_moe_tiles(const int* eoff, MoeTile* tiles, int* total, int exp
   Scan().exclusive_scan(count, begin, 0, storage);
   if (e == 511) *total = begin + count;
   for (int j = 0; j < count; j++) tiles[begin + j] = {e, first + j * cap, min(cap, ne - j * cap)};
+}
+
+// Upstream 6ecffcf: disjoint BN128 / BN64 expert row lists.
+__global__ void k_moe_tiles_hyb(const int* eoff, MoeTile* tb, int* nb, MoeTile* ta, int* na,
+                                int experts) {
+  using Scan = rocprim::block_scan<int, 512>;
+  __shared__ Scan::storage_type storage;
+  const int e = threadIdx.x;
+  const int first = e < experts ? eoff[e] : 0;
+  const int ne = e < experts ? eoff[e + 1] - first : 0;
+  const int full = ne / 128, rem = ne - full * 128;
+  const int cb = full + (rem > 64 ? 1 : 0), ca = (rem > 0 && rem <= 64) ? 1 : 0;
+  int bb, ba;
+  Scan().exclusive_scan(cb, bb, 0, storage);
+  __syncthreads();
+  Scan().exclusive_scan(ca, ba, 0, storage);
+  if (e == 511) {
+    *nb = bb + cb;
+    *na = ba + ca;
+  }
+  for (int j = 0; j < cb; j++) tb[bb + j] = {e, first + j * 128, min(128, ne - j * 128)};
+  if (ca) ta[ba] = {e, first + full * 128, rem};
 }
 
 struct GpuMoeRouting {

@@ -392,6 +392,15 @@ struct GpuModel {
   KvSeqTable kv_seq;            // live sequence; kv_seq.tab is d_ptab's host mirror
   float* d_ikg = nullptr;       // [index_blocks][128] gathered keys (paged prefill)
   const int* kvpt() const { return kv_paged ? d_ptab : nullptr; }
+  // Only large, non-speculative prefill may elide an identity page table.
+  // Decode/verify/graphs always retain their original pointer contract.
+  const int* kvpt_prefill(int P) const {
+    if (!kv_paged) return nullptr;
+    if (P < 256 || kv_mode == 2 || spec_snap || spec_fp32_active ||
+        ngram_verify_active || env_zero("GDEC_KV_IDENTITY") || !kv_seq.identity)
+      return d_ptab;
+    return nullptr;
+  }
   bool qsa_dense = getenv("GDEC_QSA_DENSE") != nullptr;
   // BF16 KV cache: measured parity at 32K (QSA is latency-bound, not DRAM-bound)
   // and flips the 8192 oracle -> opt-in experiment, default stays FP32.
@@ -557,6 +566,8 @@ struct GpuModel {
   GpuMoeRouting moe_routing;
   MoeTile* d_moetiles = nullptr;
   int* d_moentiles = nullptr;
+  MoeTile* d_moetilesA = nullptr;
+  int* d_moentilesA = nullptr;
   // GGUF routed experts (gg_on()): P == 1 scratch used by the decode graph;
   // batches reuse the prefill workspaces (see moe_gguf).
   __half* d_gg_x16 = nullptr;   // [d] F16 x
@@ -1037,6 +1048,8 @@ struct GpuModel {
       if (!moe_untiled && !moe_ordered) {
         DALLOC(&d_moetiles, ((BP * g_cfg.topk + 63) / 64 + g_cfg.experts) * sizeof(MoeTile));
         DALLOC(&d_moentiles, sizeof(int));
+        DALLOC(&d_moetilesA, (size_t)g_cfg.experts * sizeof(MoeTile));
+        DALLOC(&d_moentilesA, sizeof(int));
       }
       if (moe_lt && g_cfg.topk == 10 && moe_deterministic && !moe_host_route && !moe_ordered) {
         // 4-expert dequant groups: scratch stays MALL-resident between dequant
@@ -4120,6 +4133,7 @@ struct GpuModel {
   // bulk-copied to cache slots 0..P-1, one causal flash kernel over all
   // positions. GDEC_QSA_LOOP=1 falls back to the per-token loop (debug).
   void qsa_b(int l, int qi, int P, int base = 0) {
+    const int* const ptabc = kvpt_prefill(P);
     char buf[128];
     const uint16_t* attn_bf = nullptr;  // gated o_proj input already in bf16
     if (!qsa_dense) {
@@ -4153,7 +4167,7 @@ struct GpuModel {
         k_index_pool<<<nb - b0, 128, 0, g_str>>>(d_iproj, d_inorm + qi * 256 + 128,
                                                  keys, g_cfg.norm_eps,
                                                  g_cfg.rope_theta, base,
-                                                 d_iraw + qi * 512, d_ropecs, kvpt(),
+                                                 d_iraw + qi * 512, d_ropecs, ptabc,
                                                  vbptr(), keys16);
       k_index_ring<<<min(P, 4), 128, 0, g_str>>>(d_iproj, d_iraw + qi * 512, P, base,
                                                  vbptr());
@@ -4171,7 +4185,7 @@ struct GpuModel {
             const int rows = std::min(qsa_split_rows, P - off);
             k_index_scores<true><<<dim3((index_blocks + 3) / 4, rows), 128, 0, g_str>>>(
                 d_iq + (size_t)off * 512, keys, d_iscores, index_blocks,
-                d_posarr + base + off, kvpt());
+                d_posarr + base + off, ptabc);
             index_select_serial_rows(d_iscores, index_blocks,
                                      d_iselected + (size_t)off * 512,
                                      base + off, rows);
@@ -4182,7 +4196,7 @@ struct GpuModel {
           const int* pabs = d_posarr + base + row;
           k_index_scores<<<(index_blocks + 3) / 4, 128, 0, g_str>>>(
               d_iq + (size_t)row * 512, keys, d_iscores, index_blocks,
-              pabs, kvpt());
+              pabs, ptabc);
           index_select(d_iscores, index_blocks,
                        d_iselected + (size_t)row * 512, 0, 1, pabs);
         }
@@ -4191,19 +4205,19 @@ struct GpuModel {
       // Only ordinary large prefill's fused score64 may bypass the history
       // gather. Decode, aligned speculative rows, tiled and old selectors keep
       // their original paths. Keep d_ikg allocated for contiguous fallbacks.
-      const bool score64_paged = index_score_paged && kv_paged &&
+      const bool score64_paged = index_score_paged && ptabc &&
           index_fused2 && index_score64 && !aligned_spec_active() && P >= 1024 &&
           getenv("GDEC_INDEX_OLDSEL") == nullptr;
       const float* skeys = keys;
       const uint16_t* skeys16 = keys16;
       bool ik_gathered = false;
-      if (kv_paged && nb > 0 && std::max(2051, base) < base + P && (!score64_paged || index_f16())) {
+      if (ptabc && nb > 0 && std::max(2051, base) < base + P && (!score64_paged || index_f16())) {
         PrefillProfileSpan profile_gather(prefill_profile_, PrefillGpuProfile::QsaGather);
-        k_ik_gather<<<nb, 128, 0, g_str>>>(keys, d_ptab, d_ikg, nb);
+        k_ik_gather<<<nb, 128, 0, g_str>>>(keys, ptabc, d_ikg, nb);
         skeys = d_ikg;
         ik_gathered = true;
         if (keys16) {
-          k_ik_gather16<<<nb, 128, 0, g_str>>>(keys16, d_ptab, d_ikgh, nb);
+          k_ik_gather16<<<nb, 128, 0, g_str>>>(keys16, ptabc, d_ikgh, nb);
           skeys16 = d_ikgh;
         }
       }
@@ -4245,7 +4259,7 @@ struct GpuModel {
             if (score64_paged)
               k_index_scores_t64<true><<<index_t64_grid(nb, count), 256, 0, g_str>>>(
                   d_iq + (size_t)(first - base) * 512, keys, d_iscores,
-                  nb, count, first, d_ptab);
+                  nb, count, first, ptabc);
             else
               k_index_scores_t64<<<index_t64_grid(nb, count), 256, 0, g_str>>>(
                   d_iq + (size_t)(first - base) * 512, skeys, d_iscores, nb, count, first);
@@ -4271,7 +4285,7 @@ struct GpuModel {
         if (score64_paged && !ik_gathered) {
           // Nested inside QsaScoreSelect: do not add both inclusive timers.
           PrefillProfileSpan profile_gather(prefill_profile_, PrefillGpuProfile::QsaGather);
-          k_ik_gather<<<nb, 128, 0, g_str>>>(keys, d_ptab, d_ikg, nb);
+          k_ik_gather<<<nb, 128, 0, g_str>>>(keys, ptabc, d_ikg, nb);
           skeys = d_ikg;
           ik_gathered = true;
         }
@@ -4332,7 +4346,7 @@ struct GpuModel {
         kv_rows_store(vc, d_vbb, base, P);
         KP_SUB_END();
         KP_SUB("qsa:flash");
-        qsa_flash_b(kc, vc, P, dense_P, base, nullptr, kvpt());
+        qsa_flash_b(kc, vc, P, dense_P, base, nullptr, ptabc);
         KP_SUB_END();
       } else {
         uint16_t* kc = d_kcb + qsa_off;
@@ -4345,7 +4359,7 @@ struct GpuModel {
           unsigned h[3];
           CK(hipMemcpy(d_chk, init, sizeof init, hipMemcpyHostToDevice));
           k_vct_check<<<(unsigned)(((size_t)base * 512 + 255) / 256), 256, 0, g_str>>>(
-              vc, vct, kvpt(), base, d_chk);
+              vc, vct, ptabc, base, d_chk);
           CK(hipStreamSynchronize(g_str));
           CK(hipMemcpy(h, d_chk, sizeof h, hipMemcpyDeviceToHost));
           if (h[0] || qi == 0)
@@ -4385,10 +4399,10 @@ struct GpuModel {
           }();
           (void)noted;
           k_qsa_kprep<true, true><<<dim3(2, P), 256, 0, g_str>>>(
-              d_kbb, knw, d_kbb, kc, g_cfg.norm_eps, base, d_ropecs, kvpt());
+              d_kbb, knw, d_kbb, kc, g_cfg.norm_eps, base, d_ropecs, ptabc);
           const unsigned work = (unsigned)((base + P + 3) / 4 - base / 4) * 512;
           k_f32_to_bf16_v4_dual<<<(work + 255) / 256, 256, 0, g_str>>>(
-              d_vbb, vct, 512, P, 512, base, vc, kvpt());
+              d_vbb, vct, 512, P, 512, base, vc, ptabc);
         } else {
           // A1c paged: kprep writes the fp32 K rows only (kprep<true> stores
           // f2bf of exactly those values, so converting afterwards is the same
@@ -4418,12 +4432,12 @@ struct GpuModel {
           const int r0 = base + P, r1 = (r0 + 3) & ~3;
           const char* tv = getenv("GDEC_VCT_TAILVAL");  // hex bf16 poison (debug)
           k_vct_zero_slots<<<(unsigned)(((size_t)(r1 - r0) * 512 + 255) / 256), 256, 0,
-                             g_str>>>(vct, kvpt(), r0, r1,
+                             g_str>>>(vct, ptabc, r0, r1,
                                       tv ? (uint16_t)strtoul(tv, nullptr, 16) : 0);
         }
         KP_SUB_END();
         KP_SUB("qsa:flash");
-        qsa_flash_b(kc, vc, P, dense_P, base, vct, kvpt());
+        qsa_flash_b(kc, vc, P, dense_P, base, vct, ptabc);
         KP_SUB_END();
         if (base > 0 && getenv("GDEC_ATTN_HASH")) dbg_attn_hash(qi, base, P, kc, vc, vct);
       }
@@ -4456,19 +4470,19 @@ struct GpuModel {
                                                         g_cfg.rope_theta);
         if (qsa_kv_fp32) {
           k_store_kv<<<2, 256, 0, g_str>>>(kb, vb, d_kc + qsa_off, d_vc + qsa_off,
-                                           pabs, kvpt());
+                                           pabs, ptabc);
           k_qsa_step<float><<<24, 256, 0, g_str>>>(
               qs, d_kc + qsa_off, d_vc + qsa_off, att, pabs, 256, 2, 24,
               qsa_dense ? nullptr : d_iselected + (size_t)t * 512, false,
-              kvpt());
+              ptabc);
         } else {
           k_store_kv_bf16<<<2, 256, 0, g_str>>>(kb, vb, d_kcb + qsa_off,
                                                 d_vcb + qsa_off, pabs,
-                                                vct_layer(qi), kvpt());
+                                                vct_layer(qi), ptabc);
           k_qsa_step<uint16_t><<<24, 256, 0, g_str>>>(
               qs, d_kcb + qsa_off, d_vcb + qsa_off, att, pabs, 256, 2, 24,
               qsa_dense ? nullptr : d_iselected + (size_t)t * 512, false,
-              kvpt());
+              ptabc);
         }
         k_sigmoid_gate<<<(6144 + 255) / 256, 256, 0, g_str>>>(att, gs, att, 6144);
       }
@@ -5085,8 +5099,18 @@ struct GpuModel {
       // 每专家 slot 数 >= 80 设门槛，小 P（tail chunk / 短 prompt）走原路径。
       static const bool moe_mt_env = !env_zero("GDEC_MOE_MT");
       const bool mt = moe_mt_env && (int64_t)P * k >= 80 * E;
-      k_moe_tiles<<<1, 512, 0, g_str>>>(d_eoff, d_moetiles, d_moentiles, E, mt ? 128 : 64);
-      const int max_tiles = mt ? (P * k + 127) / 128 + E : (P * k + 63) / 64 + E;
+      const bool hyb = !env_zero("GDEC_MOE_HYB") && P >= 256 &&
+          !spec_snap && !spec_fp32_active && !ngram_verify_active;
+      int max_tiles;
+      if (hyb) {
+        k_moe_tiles_hyb<<<1, 512, 0, g_str>>>(d_eoff, d_moetiles, d_moentiles,
+                                            d_moetilesA, d_moentilesA, E);
+        max_tiles = std::min((P * k) / 65 + 1, (P * k + 127) / 128 + E);
+      } else {
+        k_moe_tiles<<<1, 512, 0, g_str>>>(d_eoff, d_moetiles, d_moentiles, E, mt ? 128 : 64);
+        max_tiles = mt ? (P * k + 127) / 128 + E : (P * k + 63) / 64 + E;
+      }
+      const int max_tiles_a = std::min(E, P * k);
       __half* x16 = (__half*)d_xbf16b;
       __half* hid = (__half*)d_hidb;
       KP("moe:rot_in");
@@ -5094,7 +5118,12 @@ struct GpuModel {
       KP("moe:up");
       // up + mid fused (方向 3): hid = fwht(silu(g)*u*suh) 直接落盘，
       // 省掉 guv16 的写读往返和 k_i4r_mid 那次 launch，数学逐位一致。
-      if (mt)
+      if (hyb) {
+        upstream_moe::moe_lut_up_mid_mt(pgu, x16, d_tokidx, d_moetiles, d_moentiles,
+            max_tiles, hid, gu.svh, dn.suh, mid, d, g_str);
+        upstream_moe::moe_lut_up_mid(pgu, x16, d_tokidx, d_moetilesA, d_moentilesA,
+            max_tiles_a, hid, gu.svh, dn.suh, mid, d, g_str);
+      } else if (mt)
         upstream_moe::moe_lut_up_mid_mt(pgu, x16, d_tokidx, d_moetiles, d_moentiles, max_tiles, hid, gu.svh,
                           dn.suh, mid, d, g_str);
       else
@@ -5108,7 +5137,12 @@ struct GpuModel {
       // mean_kld 0.106993(关) → 0.107705(开)，门槛 0.10699+0.002=0.10899 过线，
       // 默认开；GDEC_V2_PAIRS_F16=0 回退 fp32 pairs。
       static const bool pairs_f16 = !env_zero("GDEC_V2_PAIRS_F16");
-      if (mt)
+      if (hyb) {
+        upstream_moe::moe_lut_down_mt(pdn, hid, d_moetiles, d_moentiles, max_tiles,
+            d_guvb, d, mid, g_str, pairs_f16);
+        upstream_moe::moe_lut_down(upstream_moe::moelut::kI4R, pdn, hid,
+            d_moetilesA, d_moentilesA, max_tiles_a, d_guvb, d, mid, g_str, pairs_f16);
+      } else if (mt)
         upstream_moe::moe_lut_down_mt(pdn, hid, d_moetiles, d_moentiles, max_tiles, d_guvb, d, mid, g_str,
                         pairs_f16);
       else

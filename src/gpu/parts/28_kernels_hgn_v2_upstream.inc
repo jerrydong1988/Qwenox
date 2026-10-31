@@ -571,3 +571,27 @@ __global__ void k_q6g64_deq_bf16(const uint8_t* __restrict__ wq, uint16_t* __res
     *(uint4*)(o + i8 * 8) = make_uint4(pk[0], pk[1], pk[2], pk[3]);
   }
 }
+
+// Upstream 6ecffcf: coalesced Q6 loads; identical per-element FMA/RNE.
+__global__ void k_q6g64_deq_bf16_c8(const uint8_t* __restrict__ wq, uint16_t* __restrict__ out,
+                                    int R, int C, int st) {
+  const int n8 = C >> 3;
+  const size_t gi = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+  if (gi >= (size_t)R * n8) return;
+  const int r = (int)(gi / n8), k8 = (int)(gi % n8), g = k8 >> 3, i8 = k8 & 7;
+  const uint8_t* row = wq + (size_t)r * st;
+  const uint32_t lw = *(const uint32_t*)(row + g * 32 + i8 * 4);
+  const uint32_t hw = (uint32_t)*(const uint16_t*)(row + C / 2 + g * 16 + i8 * 2);
+  const uint32_t sb = *(const uint32_t*)(row + 3 * C / 4 + g * 4);
+  const float sc = __half2float(__ushort_as_half((unsigned short)(sb & 0xffffu)));
+  const float bi = __half2float(__ushort_as_half((unsigned short)(sb >> 16)));
+  uint32_t pk[4];
+#pragma unroll
+  for (int e = 0; e < 8; e += 2) {
+    const uint32_t c0 = ((lw >> (4 * e)) & 15u) | (((hw >> (2 * e)) & 3u) << 4);
+    const uint32_t c1 = ((lw >> (4 * (e + 1))) & 15u) | (((hw >> (2 * (e + 1))) & 3u) << 4);
+    pk[e / 2] = (uint32_t)f2bf(fmaf((float)c0, sc, bi)) |
+                ((uint32_t)f2bf(fmaf((float)c1, sc, bi)) << 16);
+  }
+  *(uint4*)(out + (size_t)r * C + (size_t)k8 * 8) = make_uint4(pk[0], pk[1], pk[2], pk[3]);
+}
