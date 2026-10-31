@@ -52,6 +52,8 @@
 #pragma once
 
 #include <string>
+#include <vector>
+#include "tokenizer.h"
 
 #include <nlohmann/json.hpp>
 
@@ -74,6 +76,7 @@ struct Options {
 struct RenderResult {
     bool ok = false;
     bool thinking_enabled = true;  // matches the rendered generation prompt
+    std::vector<gdec::LiteralRange> literal;  // client text; excludes template markup
     std::string text;   // when ok
     std::string error;  // when !ok: the exact raise_exception / jinja2
                         // runtime error message the template would produce

@@ -152,11 +152,37 @@ bool py_in(const char* needle, const json& item) {
 // ---------------------------------------------------------------------------
 // Renderer — mirrors the template top to bottom.
 // ---------------------------------------------------------------------------
+const std::string kImageSpan = "<|vision_start|><|image_pad|><|vision_end|>";
+const std::string kVideoSpan = "<|vision_start|><|video_pad|><|vision_end|>";
+
+// render_content inserts the vision placeholders as shadows: every byte | 0x80.
+// Same length, so truncation and the size checks on the content see exactly
+// what the template sees; it starts with a continuation byte, so client text
+// (valid UTF-8) cannot forge one and append_content can tell an inserted
+// placeholder from a typed literal.
+std::string shadow(const std::string& s) {
+    std::string out = s;
+    for (char& c : out) c = static_cast<char>(static_cast<unsigned char>(c) | 0x80);
+    return out;
+}
+
+const std::string kImageShadow = shadow(kImageSpan);
+const std::string kVideoShadow = shadow(kVideoSpan);
+
+// Length of the longest prefix of `pat` at s[i].
+size_t prefix_at(const std::string& s, size_t i, const std::string& pat) {
+    size_t k = 0;
+    while (k < pat.size() && i + k < s.size() && s[i + k] == pat[k]) ++k;
+    return k;
+}
+
 class Renderer {
   public:
     explicit Renderer(const Options& opts) : opts_(opts) {
         add_vision_id_ = truthy(opts.add_vision_id);
     }
+
+    std::vector<gdec::LiteralRange> take_literal() { return std::move(literal_); }
 
     std::string run(const json* messages) {
         std::string out;
@@ -213,7 +239,7 @@ class Renderer {
             if (tools->is_array()) {
                 for (const auto& tool : *tools) {
                     out += "\n";
-                    out += json_py::dumps(tool, /*spaced=*/true);
+                    append_content(out, json_py::dumps(tool, /*spaced=*/true), false);
                 }
             } else {
                 // A string is iterable too: `for tool in tools` yields its
@@ -223,7 +249,7 @@ class Renderer {
                     uint32_t cp;
                     size_t len = utf8_decode(s, i, cp);
                     out += "\n";
-                    out += json_py::dumps(json(s.substr(i, len)), /*spaced=*/true);
+                    append_content(out, json_py::dumps(json(s.substr(i, len)), /*spaced=*/true), false);
                     i += len;
                 }
             }
@@ -249,7 +275,7 @@ class Renderer {
                                            /*is_system_content=*/true));
                 if (!content.empty()) {
                     out += "\n\n";
-                    out += content;
+                    append_content(out, content, false);
                 }
             }
             out += "<|im_end|>\n";
@@ -264,7 +290,7 @@ class Renderer {
                     out += reasoning_instructions;
                     out += "\n\n";
                 }
-                out += content;
+                append_content(out, content, false);
                 out += "<|im_end|>\n";
             } else if (!reasoning_instructions.empty()) {
                 out += "<|im_start|>system\n";
@@ -314,7 +340,7 @@ class Renderer {
                 if (index0 != 0) raise("System message must be at the beginning.");
             } else if (str_eq(role, "user")) {
                 out += "<|im_start|>user\n";
-                out += content;
+                append_content(out, content, false);
                 out += "<|im_end|>\n";
             } else if (str_eq(role, "assistant")) {
                 std::string reasoning_content;
@@ -329,12 +355,12 @@ class Renderer {
                                       index0 > last_query_index;
                 if (preserve) {
                     out += "<|im_start|>assistant\n<think>\n";
-                    out += reasoning_content;
+                    append_content(out, reasoning_content, true);
                     out += "\n</think>\n\n";
-                    out += content;
+                    append_content(out, content, true);
                 } else {
                     out += "<|im_start|>assistant\n";
-                    out += content;
+                    append_content(out, content, true);
                 }
 
                 const json* tool_calls = get_attr(&message, "tool_calls");
@@ -368,7 +394,7 @@ class Renderer {
                         } else {
                             out += "\n<tool_call>\n<function=";
                         }
-                        out += name->get_ref<const std::string&>();
+                        append_content(out, name->get_ref<const std::string&>(), false);
                         out += ">\n";
 
                         const json* args = get_attr(tc, "arguments");
@@ -383,12 +409,12 @@ class Renderer {
                                 }
                                 for (auto it = args->begin(); it != args->end(); ++it) {
                                     out += "<parameter=";
-                                    out += it.key();
+                                    append_content(out, it.key(), false);
                                     out += ">\n";
                                     if (it.value().is_string()) {
-                                        out += it.value().get_ref<const std::string&>();
+                                        append_content(out, it.value().get_ref<const std::string&>(), false);
                                     } else {
-                                        out += json_py::dumps(it.value(), /*spaced=*/true);
+                                        append_content(out, json_py::dumps(it.value(), /*spaced=*/true), false);
                                     }
                                     out += "\n</parameter>\n";
                                 }
@@ -405,7 +431,7 @@ class Renderer {
                     out += "<|im_start|>user";
                 }
                 out += "\n<tool_response>\n";
-                out += content;
+                append_content(out, content, false);
                 out += "\n</tool_response>";
                 if (index0 + 1 < n) {
                     if (!str_eq(get_attr(&msgs[index0 + 1], "role"), "tool")) {
@@ -438,6 +464,57 @@ class Renderer {
     }
 
   private:
+    // Appends client text: records it in literal_ and restores the vision
+    // placeholder shadows (as template markup). keep_plain: assistant text.
+    void append_content(std::string& out, const std::string& s, bool keep_plain) {
+        size_t run = 0;
+        auto flush = [&](size_t end) {
+            if (end <= run) return;
+            const size_t at = out.size();
+            out.append(s, run, end - run);
+            if (!literal_.empty() && literal_.back().end == at &&
+                literal_.back().keep_plain == keep_plain)
+                literal_.back().end = out.size();
+            else
+                literal_.push_back({at, out.size(), keep_plain});
+        };
+        for (size_t i = 0; i < s.size();) {
+            // Walk by characters: a shadow starts with 0xBC ('<' | 0x80), a
+            // continuation byte, which valid UTF-8 never holds at a
+            // character start. (Truncation only cuts the end of client text,
+            // so the characters before a shadow are whole.)
+            const unsigned char c = static_cast<unsigned char>(s[i]);
+            if (c != 0xBC) {
+                size_t len = c < 0xC0 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4;
+                size_t k = 1;
+                while (k < len && i + k < s.size() &&
+                       (static_cast<unsigned char>(s[i + k]) & 0xC0) == 0x80)
+                    ++k;
+                i += k;
+                continue;
+            }
+            const size_t ki = prefix_at(s, i, kImageShadow);
+            const size_t kv = prefix_at(s, i, kVideoShadow);
+            if (ki == kImageShadow.size() || kv == kVideoShadow.size()) {
+                flush(i);
+                out += ki == kImageShadow.size() ? kImageSpan : kVideoSpan;
+                i += kImageShadow.size();
+                run = i;
+                continue;
+            }
+            // Cut by truncate_payload: the template would hold the partial
+            // placeholder text, which is now client text.
+            const size_t k = std::max(ki, kv);
+            flush(i);
+            const size_t at = out.size();
+            out.append((ki >= kv ? kImageSpan : kVideoSpan), 0, k);
+            literal_.push_back({at, out.size(), keep_plain});
+            i += k;
+            run = i;
+        }
+        flush(s.size());
+    }
+
     // The render_content macro.
     std::string render_content(const json* content, bool do_vision_count,
                                bool is_system_content) {
@@ -452,14 +529,14 @@ class Renderer {
                     if (add_vision_id_) {
                         out += "Picture " + std::to_string(image_count_) + ": ";
                     }
-                    out += "<|vision_start|><|image_pad|><|vision_end|>";
+                    out += kImageShadow;
                 } else if (is_video_item(item)) {
                     if (is_system_content) raise("System message cannot contain videos.");
                     if (do_vision_count) ++video_count_;
                     if (add_vision_id_) {
                         out += "Video " + std::to_string(video_count_) + ": ";
                     }
-                    out += "<|vision_start|><|video_pad|><|vision_end|>";
+                    out += kVideoShadow;
                 } else if (py_in("text", item)) {
                     // item.text: dict key value, or Undefined (prints as '')
                     // for string/array items (header note 5).
@@ -484,6 +561,7 @@ class Renderer {
         return py_in("video", item) || str_eq(get_attr(&item, "type"), "video");
     }
 
+    std::vector<gdec::LiteralRange> literal_;
     const Options& opts_;
     bool add_vision_id_ = false;
     long image_count_ = 0;
@@ -497,6 +575,7 @@ RenderResult render_chat_template(const json* messages, const Options& opts) {
     try {
         Renderer renderer(opts);
         result.text = renderer.run(messages);
+        result.literal = renderer.take_literal();
         result.thinking_enabled = renderer.thinking_enabled();
         result.ok = true;
     } catch (const TemplateError& e) {

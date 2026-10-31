@@ -312,7 +312,7 @@ class TokenCache {
     }
 
     // Persistence (GDEC_API_TOKCACHE_FILE, default data/tcache.bin, "" = off).
-    // Layout, little-endian: magic "GDTC1\0\0\0" | u32 version(1) | u32 vocab
+    // Layout, little-endian: magic "GDTC1\0\0\0" | u32 version(2) | u32 vocab
     // | u64 count | per entry u64 n_ids + n_ids*i32. Byte offsets and pad runs
     // are rebuilt from the ids at load, so the only compatibility guard is the
     // vocab size. Written tmp+rename; a torn file just means an empty cache.
@@ -331,7 +331,7 @@ class TokenCache {
         FILE* f = fopen(tmp.c_str(), "wb");
         if (!f) return;
         const char magic[8] = "GDTC1";
-        const uint32_t ver = 1, vocab = (uint32_t)g_tok.vocab_size();
+        const uint32_t ver = 2, vocab = (uint32_t)g_tok.vocab_size();
         const uint64_t count = snap.size();
         bool ok = fwrite(magic, 1, 8, f) == 8 && fwrite(&ver, 4, 1, f) == 1 &&
                   fwrite(&vocab, 4, 1, f) == 1 && fwrite(&count, 8, 1, f) == 1;
@@ -359,7 +359,7 @@ class TokenCache {
         uint32_t ver = 0, vocab = 0;
         uint64_t count = 0;
         bool ok = fread(magic, 1, 8, f) == 8 && !memcmp(magic, "GDTC1\0\0\0", 8) &&
-                  fread(&ver, 4, 1, f) == 1 && ver == 1 &&
+                  fread(&ver, 4, 1, f) == 1 && ver == 2 &&
                   fread(&vocab, 4, 1, f) == 1 && (int)vocab == g_tok.vocab_size() &&
                   fread(&count, 8, 1, f) == 1 && count <= kMaxEntries * 4;
         size_t entries = 0, tokens = 0;
@@ -398,7 +398,12 @@ class TokenCache {
 
     // Longest reusable prefix of `text`. pad_counts = pad tokens per image of
     // this request, in order (an image run is only reused when it matches).
-    Hit splice(const std::string& text, const std::vector<int>& pad_counts) {
+    // added = the added tokens a full encode of `text` would produce
+    // (Tokenizer::added_matches with this request's literal ranges): the same
+    // bytes can be a control token in one request and typed text in another,
+    // so a reused prefix must hold exactly these.
+    Hit splice(const std::string& text, const std::vector<int>& pad_counts,
+               const std::vector<gdec::TokenSpan>& added) {
         Hit best;
         if (!enabled()) return best;
         std::shared_ptr<Entry> pick;
@@ -406,7 +411,7 @@ class TokenCache {
         {
             std::lock_guard<std::mutex> lk(mtx_);
             for (const auto& t : entries_) {
-                const size_t k = cut(*t, text, pad_counts);
+                const size_t k = cut(*t, text, pad_counts, added);
                 if (k == 0) continue;
                 const size_t b = t->off[k];
                 if (!pick || b > pick->off[pick_k] ||
@@ -432,17 +437,31 @@ class TokenCache {
         std::string bytes;           // what the ids decode to (a pad run = one pad)
         std::vector<uint32_t> off;   // off[i] = byte offset of ids[i]; off[n] = bytes.size()
         std::vector<std::pair<uint32_t, uint32_t>> runs;  // image pad runs: (first id, count)
+        std::vector<std::pair<uint32_t, int>> added;  // (byte offset, id) per added token; one per pad run
         int vstart = -1;
         uint64_t used = 0;
     };
 
     // Reusable id count of `t` for `text` (0 = none).
-    size_t cut(const Entry& t, const std::string& text, const std::vector<int>& pad_counts) const {
+    size_t cut(const Entry& t, const std::string& text, const std::vector<int>& pad_counts,
+               const std::vector<gdec::TokenSpan>& added) const {
         const size_t n = t.ids.size();
         const size_t lim = std::min(t.bytes.size(), text.size());
-        const size_t same = static_cast<size_t>(
+        size_t same = static_cast<size_t>(
             std::mismatch(t.bytes.begin(), t.bytes.begin() + lim, text.begin()).first -
             t.bytes.begin());
+        // Within the equal bytes the added tokens must also agree (typed
+        // "<|im_end|>" is BPE, the template's is one id): stop at the first
+        // that differs.
+        for (size_t a = 0, b = 0;; ++a, ++b) {
+            const size_t pa = a < t.added.size() ? t.added[a].first : SIZE_MAX;
+            const size_t pb = b < added.size() ? added[b].start : SIZE_MAX;
+            if (std::min(pa, pb) >= same) break;
+            if (pa != pb || t.added[a].second != added[b].id) {
+                same = std::min(pa, pb);
+                break;
+            }
+        }
         // Last id boundary inside the equal bytes.
         size_t k = static_cast<size_t>(
             std::upper_bound(t.off.begin(), t.off.end(), static_cast<uint32_t>(same)) -
@@ -496,6 +515,7 @@ class TokenCache {
                 t->runs.back().second++;
                 if (run_cont) continue;
             }
+            if (g_tok.is_added_token(ids[i])) t->added.push_back({t->off.back(), ids[i]});
             t->bytes += g_tok.decode_bytes(std::vector<int>{ids[i]}, /*skip_special=*/false);
         }
         t->off.push_back(static_cast<uint32_t>(t->bytes.size()));
@@ -581,13 +601,25 @@ std::vector<int> default_ckpt_tokens() {
 
 // Encode a rendered prompt, reusing the transcript cache for its prefix.
 // frames == nullptr: raw text (no image expansion, like encode()). starts
-// receives each id's byte offset in `text`.
+// receives each id's byte offset in `text`. literal: the render's client-text
+// ranges (RenderResult::literal), where control-token text stays plain text;
+// nullptr for a raw prompt (/v1/completions), where it is all recognized.
 bool encode_spliced(const std::string& text, const std::vector<vision::Frame>* frames,
-                    std::vector<int>* ids, std::vector<size_t>* starts, std::string* error) {
+                    std::vector<int>* ids, std::vector<size_t>* starts, std::string* error,
+                    const std::vector<gdec::LiteralRange>* literal = nullptr) {
+    // Text-only request: a user-typed <|image_pad|>/<|video_pad|> literal
+    // must tokenize as ordinary text. As the added-token ids it would
+    // make the engine read this as a vision request without images and
+    // reject it ("image placeholder ... without MROPE/VIMG"); only the
+    // vision path (encode_prompt) may produce those ids.
+    static const std::unordered_set<int> kTextNoPads = {kImagePadId, kVideoPadId};
+    const std::unordered_set<int>* exclude = frames ? nullptr : &kTextNoPads;
     std::vector<int> pad_counts;
     if (frames)
         for (const auto& f : *frames) pad_counts.push_back(f.pad_tokens());
-    TokenCache::Hit hit = g_tcache.splice(text, pad_counts);
+    std::vector<gdec::TokenSpan> added;
+    if (g_tcache.enabled()) added = g_tok.added_matches(text, exclude, literal);
+    TokenCache::Hit hit = g_tcache.splice(text, pad_counts, added);
     // The reused text must hold exactly the images the reused ids hold.
     if (hit.bytes > 0) {
         size_t spans = 0;
@@ -598,6 +630,14 @@ bool encode_spliced(const std::string& text, const std::vector<vision::Frame>* f
         if (spans != hit.images || (!frames && hit.images > 0)) hit = TokenCache::Hit{};
     }
     const std::string tail_text = text.substr(hit.bytes);
+    // The literal ranges in tail_text coordinates.
+    std::vector<gdec::LiteralRange> tail_literal;
+    if (literal)
+        for (const auto& r : *literal)
+            if (r.end > hit.bytes)
+                tail_literal.push_back({std::max(r.begin, hit.bytes) - hit.bytes,
+                                        r.end - hit.bytes, r.keep_plain});
+    const std::vector<gdec::LiteralRange>* tl = literal ? &tail_literal : nullptr;
     std::vector<int> tail;
     std::vector<size_t> tail_starts;
     if (frames) {
@@ -607,16 +647,10 @@ bool encode_spliced(const std::string& text, const std::vector<vision::Frame>* f
             f.grid = (*frames)[i].grid;
             rest.push_back(f);
         }
-        if (!vision::encode_prompt(tail_text, g_tok, rest, &tail, error, &tail_starts))
+        if (!vision::encode_prompt(tail_text, g_tok, rest, &tail, error, &tail_starts, tl))
             return false;
     } else {
-        // Text-only request: a user-typed <|image_pad|>/<|video_pad|> literal
-        // must tokenize as ordinary text. As the added-token ids it would
-        // make the engine read this as a vision request without images and
-        // reject it ("image placeholder ... without MROPE/VIMG"); only the
-        // vision path (encode_prompt) may produce those ids.
-        static const std::unordered_set<int> kTextNoPads = {kImagePadId, kVideoPadId};
-        for (const auto& s : g_tok.encode_with_offsets(tail_text, false, &kTextNoPads)) {
+        for (const auto& s : g_tok.encode_with_offsets(tail_text, false, exclude, tl)) {
             tail.push_back(s.id);
             tail_starts.push_back(s.start);
         }
@@ -664,6 +698,7 @@ struct GenOutcome {
     int served_max_tokens = 0;
     int clamped_from = 0;
     std::vector<float> logprobs;
+    std::string stop_hit;
     bool hit_stop = false;
     bool client_gone = false;
 };
@@ -759,7 +794,10 @@ GenOutcome run_generation(GenSpec& spec,
         size_t cut = std::string::npos;
         for (const std::string& s : spec.stop) {
             size_t at = pending_emit.find(s);
-            if (at != std::string::npos && (cut == std::string::npos || at < cut)) cut = at;
+            if (at != std::string::npos && (cut == std::string::npos || at < cut)) {
+                cut = at;
+                out.stop_hit = s;
+            }
         }
         if (cut != std::string::npos) {
             std::string delta = pending_emit.substr(0, cut);
@@ -1869,7 +1907,8 @@ void handle_health(const http::Request&, http::Response* r, http::Stream*) {
     j["status"] = "ok";
     j["model"] = g_cfg.model;
     j["endpoints"] = json::array(
-        {"/v1/chat/completions", "/v1/completions", "/v1/models", "/v1/responses",
+        {"/v1/chat/completions", "/v1/completions", "/v1/models",
+         "/v1/messages", "/v1/messages/count_tokens", "/v1/tokenize", "/v1/detokenize", "/v1/responses",
          "/dashboard", "/reqstat/summary", "/reqstat/tail", "/metrics/live"});
     if (g_cfg.rope.factor > 1.0) {
         j["rope_scaling"] = {{"type", "yarn"},
@@ -2191,7 +2230,7 @@ void handle_chat(const http::Request& q, http::Response* r, http::Stream* st) {
 
     GenSpec spec;
     std::vector<size_t> starts;
-    if (!encode_spliced(rr.text, &frames, &spec.ids, &starts, &normalize_error))
+    if (!encode_spliced(rr.text, &frames, &spec.ids, &starts, &normalize_error, &rr.literal))
         http::fail(400, normalize_error);
     for (auto& frame : frames) {
         spec.mrope_grids.push_back(frame.grid);
@@ -2402,7 +2441,7 @@ void handle_responses(const http::Request& q, http::Response* r, http::Stream* s
 
     GenSpec spec;
     std::vector<size_t> starts;
-    if (!encode_spliced(rr.text, &frames, &spec.ids, &starts, &vision_error))
+    if (!encode_spliced(rr.text, &frames, &spec.ids, &starts, &vision_error, &rr.literal))
         http::fail(400, vision_error);
     for (auto& frame : frames) {
         spec.mrope_grids.push_back(frame.grid);
@@ -2706,6 +2745,10 @@ void handle_responses(const http::Request& q, http::Response* r, http::Stream* s
           json{{"response", std::move(final_response)}});
 }
 
+// Wire-format adapters share local generation, cancellation and tool validation.
+#include "messages_api.inc"
+#include "token_api.inc"
+
 // -------------------------------------------------------------------- main --
 
 bool parse_engine_info(const std::string& line, EngineCapacity* capacity) {
@@ -2892,6 +2935,10 @@ int main(int argc, char** argv) {
     srv.on("POST", "/admin/overrides", handle_overrides_post);
     srv.on("POST", "/v1/completions", handle_completions);
     srv.on("POST", "/v1/chat/completions", handle_chat);
+    srv.on("POST", "/v1/messages", handle_messages);
+    srv.on("POST", "/v1/messages/count_tokens", handle_messages_count);
+    srv.on("POST", "/v1/tokenize", handle_tokenize);
+    srv.on("POST", "/v1/detokenize", handle_detokenize);
     srv.on("POST", "/v1/responses", handle_responses);
 
     EngineReprobe recovery(!engine_probed);
