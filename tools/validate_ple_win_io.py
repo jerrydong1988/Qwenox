@@ -43,60 +43,63 @@ int main(int argc, char** argv) {
                 "output guard changed");
     };
     unsigned cases = 0;
+    auto close_all = [] {
+      g_ple_win.close();
+      for (auto& reader : g_ple_win_fls) reader.close();
+      g_ple_win_nfl = 0;
+    };
+    struct FlightView {
+      void run(const uint64_t* a, uint8_t* out, uint64_t table, size_t n) {
+        ple_read_flight_rows(a, out, table, n);
+      }
+    } pool, other;
     for (int rings : {1, 8}) {
       _putenv_s("GDEC_PLE_RINGS", std::to_string(rings).c_str());
-      {
-        PleWinReaders pool, other;
-        PleWin decode;
-        require(pool.setup(argv[1]) && other.setup(argv[1]) && decode.setup(argv[1]),
-                "reader setup");
-        require(pool.readers.size() == (size_t)rings, "actual pump count");
-        for (size_t n : {0,1,16,511,512,513,4095,4096,4097,8193}) {
-          check(pool, n, (unsigned)n); ++cases;
-        }
-        // Shared-pool serialization plus independent decode/prefill ownership.
-        std::exception_ptr errors[4];
-        std::thread threads[4];
-        for (int t = 0; t < 4; ++t) threads[t] = std::thread([&,t] {
-          try {
-            for (int r = 0; r < 6; ++r) {
-              if (t < 2) check(pool, 4097, 100+t*10+r);
-              else if (t == 2) check(other, 8193, 200+r);
-              else check(decode, 16, 300+r);
-            }
-          } catch (...) { errors[t] = std::current_exception(); }
-        });
-        for (auto& t : threads) t.join();
-        for (auto& e : errors) if (e) std::rethrow_exception(e);
-        cases += 24;
-        if (const char* page = getenv("GDEC_PLE_PAGE_IO"); page && !strcmp(page,"1")) {
-          // One worker rejects before issuing I/O; all peer workers must join
-          // before the exception reaches the caller, and the pool stays usable.
-          std::vector<uint64_t> addresses(8193, table);
-          std::vector<uint8_t> output(addresses.size() * g_ple_rb);
-          addresses[4500] = table-1;
-          bool threw = false;
-          try { pool.run(addresses.data(), output.data(), table, addresses.size()); }
-          catch (const std::out_of_range&) { threw = true; }
-          require(threw, "worker exception must propagate after join");
-          check(pool, 8193, 991); ++cases;
-        }
+      ple_uring_open(argv[1]);
+      require(ple_uring_ready() && ple_pump_count() == rings, "global pump setup");
+      for (size_t n : {0,1,16,511,512,513,4095,4096,4097,8193}) {
+        check(pool, n, (unsigned)n); ++cases;
       }
-      // Repeated request-owned pool creation/destruction must release handles.
+      std::exception_ptr errors[4];
+      std::thread threads[4];
+      for (int t = 0; t < 4; ++t) threads[t] = std::thread([&,t] {
+        try {
+          for (int r = 0; r < 6; ++r) {
+            if (t < 2) check(pool, 4097, 100+t*10+r);
+            else if (t == 2) check(other, 8193, 200+r);
+            else check(g_ple_win, 16, 300+r);
+          }
+        } catch (...) { errors[t] = std::current_exception(); }
+      });
+      for (auto& thread : threads) thread.join();
+      for (auto& error : errors) if (error) std::rethrow_exception(error);
+      cases += 24;
+      if (const char* page = getenv("GDEC_PLE_PAGE_IO"); page && !strcmp(page,"1")) {
+        std::vector<uint64_t> addresses(8193, table);
+        std::vector<uint8_t> output(addresses.size() * g_ple_rb);
+        addresses[4500] = table-1;
+        bool threw = false;
+        try { pool.run(addresses.data(), output.data(), table, addresses.size()); }
+        catch (const std::out_of_range&) { threw = true; }
+        require(threw, "worker exception must propagate after join");
+        check(pool, 8193, 991); ++cases;
+      }
+      close_all();
       for (int i = 0; i < 40; ++i) {
-        PleWinReaders pool;
-        require(pool.setup(argv[1]), "repeated setup");
+        ple_uring_open(argv[1]);
+        require(ple_uring_ready(), "repeated global setup");
         check(pool, 513, 400+i); ++cases;
+        close_all();
       }
     }
     {
-      PleWinReaders empty;
       bool threw = false;
-      try { empty.run(nullptr, nullptr, table, 0); }
+      try { pool.run(nullptr, nullptr, table, 0); }
       catch (const std::runtime_error&) { threw = true; }
-      require(threw, "empty pool must reject");
-      require(!empty.setup("no-such-ple-test-file.invalid"), "missing file setup");
-      ++cases;
+      require(threw, "closed global readers must reject");
+      ple_uring_open("no-such-ple-test-file.invalid");
+      require(!ple_uring_ready(), "missing file setup");
+      close_all(); ++cases;
     }
     DWORD handles_after = 0;
     GetProcessHandleCount(GetCurrentProcess(), &handles_after);
@@ -119,7 +122,7 @@ def main():
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     code = (root/'src/gpu/parts/10_ple_io.inc').read_text(encoding='utf-8')
-    excerpt = code[code.index('struct PleWin {'):code.index('static PleWin g_ple_win;')]
+    excerpt = code[code.index('struct PleWin {'):code.index('struct PleWinPrefetch {')]
     args.output.mkdir(parents=True, exist_ok=True)
     src, exe = args.output/'ple_win_io_test.cpp', args.output/'ple_win_io_test.exe'
     prefix = '''#define NOMINMAX

@@ -5625,9 +5625,9 @@ struct GpuModel {
               addresses[(size_t)t * 16 + h] = table_va + row * (uint64_t)row_bytes;
             }
           }
-          // One pump call at a time: Windows' global IOCP does not dispatch
-          // completions by job owner. No HIP or mutable model access here.
-          PLE_PUMP.run(addresses.data(), host, table_va, (size_t)rows * 16);
+          // Shared upstream flight readers serialize each IOCP independently;
+          // synchronous decode uses a separate queue. No HIP/model mutation here.
+          ple_read_flight_rows(addresses.data(), host, table_va, (size_t)rows * 16);
         } catch (...) {
           error = std::current_exception();
         }
@@ -5980,10 +5980,11 @@ struct GpuModel {
         ple_barrier.store(0, std::memory_order_relaxed);
         if (ple_uring_ready()) {
           // io_uring batch-pread gather: phase A is the same 16-thread row
-          // address computation; worker 0 then pumps all 16*P rows in token
-          // order through the 256-deep ring straight into pinned staging.
+          // address computation; pump workers reuse those threads and read
+          // disjoint row ranges through upstream global IOCP readers.
           ple_addrs.resize((size_t)P * 16);
-          ple_workers.store(1);  // only the pump thread accounts for ple_done
+          const int npump = P >= 64 ? std::min(nt, ple_pump_count()) : 1;
+          ple_workers.store(npump);  // address workers also act as I/O pumps
           for (int w = 0; w < nt; w++)
             ple_pool.emplace_back([&, w] {
               const int t0 = (int)((size_t)w * P / nt), t1 = (int)((size_t)(w + 1) * P / nt);
@@ -6001,11 +6002,14 @@ struct GpuModel {
                 }
               }
               ple_barrier.fetch_add(1, std::memory_order_acq_rel);
-              if (w != 0) return;
+              if (w >= npump) return;
               while (ple_barrier.load(std::memory_order_acquire) < nt)
                 std::this_thread::yield();
-              PLE_PUMP.run(ple_addrs.data(), ple_fp8,
-                           (uint64_t)(uintptr_t)ple_table->data, (size_t)P * 16);
+              const size_t nrow = (size_t)P * 16;
+              const size_t begin = nrow * w / npump, end = nrow * (w + 1) / npump;
+              PLE_PUMP_I(w).run(ple_addrs.data() + begin,
+                               ple_fp8 + begin * g_ple_rb,
+                               (uint64_t)(uintptr_t)ple_table->data, end - begin);
               if (ple_workers.fetch_sub(1) == 1)
                 ple_done = std::chrono::steady_clock::now();
             });
