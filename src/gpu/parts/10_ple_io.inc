@@ -590,11 +590,9 @@ struct KvPagePool {
 struct KvSeqTable {
   std::vector<int> tab;
   int mapped = 0;
-  bool identity = true;
   void init(int lpages, int guard) {
     tab.assign((size_t)lpages, guard);
     mapped = 0;
-    identity = true;
   }
   int rows() const { return mapped * KV_PAGE; }
   // Back rows [0, end). false: end beyond the table or pool exhausted (pages
@@ -605,7 +603,6 @@ struct KvSeqTable {
     while (mapped < need) {
       const int p = pool.alloc();
       if (p < 0) return false;
-      if (p != mapped) identity = false;
       tab[(size_t)mapped++] = p;
     }
     return true;
@@ -619,7 +616,6 @@ struct KvSeqTable {
       tab[(size_t)mapped] = pool.guard();
       n++;
     }
-    if (!mapped) identity = true;
     return n;
   }
   // A3: take a reference on the pages holding rows [0, pos) (a checkpoint).
@@ -640,16 +636,12 @@ struct KvSeqTable {
     trim(pool, 0);
     for (size_t i = 0; i < pages.size(); i++) tab[i] = pages[i];
     mapped = (int)pages.size();
-    identity = true;
-    for (int i = 0; i < mapped; ++i)
-      if (tab[(size_t)i] != i) { identity = false; break; }
   }
   // A3 copy-on-write: logical page lp now maps fresh page p (already holding
   // a copy); the shared original loses the live reference.
   void replace(KvPagePool& pool, int lp, int p) {
     const int old = tab[(size_t)lp];
     tab[(size_t)lp] = p;
-    if (p != lp) identity = false;
     pool.unref(old);
   }
 };
@@ -1009,28 +1001,6 @@ __global__ void k_moe_tiles(const int* eoff, MoeTile* tiles, int* total, int exp
   Scan().exclusive_scan(count, begin, 0, storage);
   if (e == 511) *total = begin + count;
   for (int j = 0; j < count; j++) tiles[begin + j] = {e, first + j * cap, min(cap, ne - j * cap)};
-}
-
-// Upstream 6ecffcf: disjoint BN128 / BN64 expert row lists.
-__global__ void k_moe_tiles_hyb(const int* eoff, MoeTile* tb, int* nb, MoeTile* ta, int* na,
-                                int experts) {
-  using Scan = rocprim::block_scan<int, 512>;
-  __shared__ Scan::storage_type storage;
-  const int e = threadIdx.x;
-  const int first = e < experts ? eoff[e] : 0;
-  const int ne = e < experts ? eoff[e + 1] - first : 0;
-  const int full = ne / 128, rem = ne - full * 128;
-  const int cb = full + (rem > 64 ? 1 : 0), ca = (rem > 0 && rem <= 64) ? 1 : 0;
-  int bb, ba;
-  Scan().exclusive_scan(cb, bb, 0, storage);
-  __syncthreads();
-  Scan().exclusive_scan(ca, ba, 0, storage);
-  if (e == 511) {
-    *nb = bb + cb;
-    *na = ba + ca;
-  }
-  for (int j = 0; j < cb; j++) tb[bb + j] = {e, first + j * 128, min(128, ne - j * 128)};
-  if (ca) ta[ba] = {e, first + full * 128, rem};
 }
 
 struct GpuMoeRouting {

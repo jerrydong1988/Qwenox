@@ -300,7 +300,6 @@ static size_t devarena_estimate(const Checkpoint& ck, int maxctx) {
   if (moe_det) add(BP * g_cfg.topk * 4);             // pairids
   add(4 * BP * g_cfg.topk * 4 + ((size_t)8 << 20));  // moe_routing keys + scratch
   add(((BP * g_cfg.topk + 63) / 64 + g_cfg.experts) * sizeof(MoeTile) + 4);  // moetiles
-  add((size_t)g_cfg.experts * sizeof(MoeTile) + 4);  // hybrid remainder tiles
   if (moe_lt_ok) {
     add(BP * g_cfg.topk * g_cfg.d * 2);         // moexg
     add((size_t)4 * 2 * g_cfg.moe_mid * g_cfg.d * 2 * (lt_ovl ? 2 : 1));  // moewup
@@ -1100,20 +1099,12 @@ static bool q6g64_gemv(const WView& w, const void* x, bool xbf16, uint64_t xs, f
 
 // ht / q6g64 -> bf16 W[rows][cols] (prefill GEMM operand).
 static void v2_deq_bf16(const WView& w, uint16_t* out, hipStream_t st) {
-  static const bool q6_fast = [] {
-    const char* e = getenv("GDEC_Q6_DEQ_FAST");
-    return !(e && e[0] == '0' && e[1] == 0);
-  }();
   if (w.dtype == 16) {
     const unsigned tiles = (unsigned)((w.rows / 128) * (w.cols / 128));
     if (v2_exact_dense_decode())
       hgnv2gpu::ht_dense_exact_streamed<<<tiles,256,0,st>>>(w.data,w.suh,w.svh,out,(int)w.cols);
     else
       k_ht_deq_bf16<<<tiles, 256, 0, st>>>(w.data, w.suh, w.svh, out, (int)w.cols);
-  } else if (q6_fast) {
-    const uint64_t n8 = w.rows * (w.cols / 8);
-    k_q6g64_deq_bf16_c8<<<(unsigned)((n8 + 255) / 256), 256, 0, st>>>(
-        w.data, out, (int)w.rows, (int)w.cols, (int)w.scale_stride);
   } else {
     const uint64_t ng = w.rows * (w.cols / 64);
     k_q6g64_deq_bf16<<<(unsigned)((ng + 255) / 256), 256, 0, st>>>(

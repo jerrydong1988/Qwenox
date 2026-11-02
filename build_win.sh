@@ -10,7 +10,6 @@
 #   bash build_win.sh test       # 编 build/ktest-win.exe 并运行 kernel 单测
 #   bash build_win.sh webp-test  # CPU WebP/工具图片回归（测试需要 Pillow）
 #   bash build_win.sh qwen27-test # Qwen27 HGN 格式单测（不加载模型）
-#   bash build_win.sh prefill-safe-test # PLE queue + Q6/MoE/KV differential checks
 #   TOK_DIR=... bash build_win.sh snap-cuts-test # 检查点切分新旧等价测试
 #   TOK_DIR=... bash build_win.sh literal-test # 控制 token 原文/图像占位符编码回归
 #
@@ -41,7 +40,7 @@ export HIP_PATH="$TR_WIN"
 unset ROCM_PATH HIP_PATH_64 HIP_PATH_71 HIP_PATH_72
 GPU_ARCH="${GPU_ARCH:-gfx1151}"
 TARGET="${1:-all}"
-[[ "$TARGET" == all || "$TARGET" == engine || "$TARGET" == bench || "$TARGET" == api || "$TARGET" == launcher || "$TARGET" == eng-cli || "$TARGET" == test || "$TARGET" == v2-test || "$TARGET" == v006-test || "$TARGET" == webp-test || "$TARGET" == qwen27-test || "$TARGET" == snap-cuts-test || "$TARGET" == literal-test || "$TARGET" == prefill-safe-test ]] || { sed -n '2,13p' "$0" >&2; exit 2; }
+[[ "$TARGET" == all || "$TARGET" == engine || "$TARGET" == bench || "$TARGET" == api || "$TARGET" == launcher || "$TARGET" == eng-cli || "$TARGET" == test || "$TARGET" == v2-test || "$TARGET" == v006-test || "$TARGET" == webp-test || "$TARGET" == qwen27-test || "$TARGET" == snap-cuts-test || "$TARGET" == literal-test ]] || { sed -n '2,12p' "$0" >&2; exit 2; }
 
 # Host-only targets still use TheRock clang, but need neither HIP nor GPU
 # runtime/database staging. Preserve the existing GPU toolchain for other targets.
@@ -220,13 +219,6 @@ case "$TARGET" in
     build/v006-api-test.exe "$TOK_DIR"
     "$HIPCC" "${FLAGS[@]}" -Isrc/gpu tools/v006_gpu_test.cu -o build/v006-gpu-test.exe
     build/v006-gpu-test.exe
-    ;;
-
-  prefill-safe-test)
-    "$TR/lib/llvm/bin/clang++.exe" -O2 -std=c++17 -D_CRT_SECURE_NO_WARNINGS tools/ple_prefetch_test.cpp -o build/ple-prefetch-test.exe
-    build/ple-prefetch-test.exe
-    "$HIPCC" "${FLAGS[@]}" -Isrc/gpu tools/prefill_safe_test.cu -o build/prefill-safe-test.exe
-    build/prefill-safe-test.exe
     ;;
 
   v2-test)
