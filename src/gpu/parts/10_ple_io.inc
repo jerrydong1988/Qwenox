@@ -169,6 +169,8 @@ static bool ple_uring_ready() {
   return g_ple_ring.fd >= 0;
 }
 #define PLE_PUMP g_ple_ring
+#define PLE_PUMP_I(i) g_ple_ring
+static int ple_pump_count() { return 1; }
 
 #else  // _WIN32 ------------------------------------------------------------
 
@@ -178,6 +180,8 @@ static bool ple_uring_ready() {
 // g_ple_foff + (addrs[i] - table_va) 读入 staging + i*g_ple_rb；任何失败/短读
 // 立即 fatal，不做半途回退。
 struct PleWin {
+  std::mutex run_mu;
+  std::unique_lock<std::mutex> batch_lk;
   HANDLE fh = INVALID_HANDLE_VALUE;
   HANDLE iocp = nullptr;
   static constexpr size_t DEPTH = 512;
@@ -197,6 +201,25 @@ struct PleWin {
   }
 
   bool ok() const { return iocp != nullptr && g_ple_off_ok; }
+
+  // Do not subtract or dereference an untrusted completion pointer. Check its
+  // address and alignment against the active OVERLAPPED array first.
+  static size_t completion_slot(const OVERLAPPED* pov, const OVERLAPPED* first,
+                                size_t count, DWORD got, DWORD error) {
+    const uintptr_t address = reinterpret_cast<uintptr_t>(pov);
+    const uintptr_t base = reinterpret_cast<uintptr_t>(first);
+    if (pov && address >= base) {
+      const uintptr_t offset = address - base;
+      if (offset % sizeof(OVERLAPPED) == 0 && offset / sizeof(OVERLAPPED) < count)
+        return static_cast<size_t>(offset / sizeof(OVERLAPPED));
+    }
+    fprintf(stderr,
+            "ple_win: completion outside active batch (ov=%p, count=%zu, got=%lu, err=%lu)\n",
+            static_cast<const void*>(pov), count, (unsigned long)got,
+            (unsigned long)error);
+    abort();
+  }
+
 
   bool setup(const char* filename) {
     close();
@@ -276,6 +299,7 @@ struct PleWin {
 
   void run(const uint64_t* addrs, uint8_t* staging, uint64_t table_va,
            size_t n) {
+    std::lock_guard<std::mutex> lock(run_mu);
     static const bool pages = [] {
       const char* value = getenv("GDEC_PLE_PAGE_IO");
       return value && !strcmp(value, "1");
@@ -348,20 +372,16 @@ struct PleWin {
       OVERLAPPED* pov = nullptr;
       const uint64_t before_wait = timing ? GetTickCount64() : 0;
       BOOL okr = GetQueuedCompletionStatus(iocp, &got, &key, &pov, INFINITE);
+      const DWORD error = okr ? ERROR_SUCCESS : GetLastError();
       if (timing) {
         const uint64_t elapsed = GetTickCount64() - before_wait;
         wait_ms += elapsed; max_wait_ms = std::max(max_wait_ms, elapsed);
       }
-      const uintptr_t address = (uintptr_t)pov, first = (uintptr_t)ovs.data();
-      const bool valid = pov && address >= first &&
-          address - first < depth * sizeof(OVERLAPPED) &&
-          (address - first) % sizeof(OVERLAPPED) == 0;
-      const size_t slot = valid ? (address - first) / sizeof(OVERLAPPED) : 0;
-      if (!okr || !valid || got != g_ple_rb) {
+      const size_t slot = completion_slot(pov, ovs.data(), depth, got, error);
+      if (!okr || got != g_ple_rb) {
         fprintf(stderr,
                 "ple_win: read completion failed (row=%zu, got=%lu, err=%lu)\n",
-                valid ? rows[slot] : (size_t)-1, (unsigned long)got,
-                (unsigned long)GetLastError());
+                rows[slot], (unsigned long)got, (unsigned long)error);
         abort();
       }
       free_[nfree++] = slot;
@@ -373,17 +393,112 @@ struct PleWin {
               (unsigned long long)submit_ms, (unsigned long long)wait_ms,
               (unsigned long long)max_submit_ms, (unsigned long long)max_wait_ms);
   }
+
+  // Split form of run() for one small batch (n <= DEPTH): issue() posts every
+  // read now, wait_all() collects the n completions later. Same bytes as
+  // run(). Lets the caller post the reads, enqueue GPU work, then wait, with
+  // no helper thread (10-12: spawning threads per verify cost ~2 ms under
+  // serving load). One batch in flight at a time.
+  std::vector<OVERLAPPED> b_ovs;
+  size_t b_n = 0;
+  void issue(const uint64_t* addrs, uint8_t* staging, uint64_t table_va, size_t n) {
+    std::unique_lock<std::mutex> lk(run_mu);
+    b_ovs.assign(n, OVERLAPPED{});  // never reallocated while reads are pending
+    for (size_t i = 0; i < n; i++) {
+      OVERLAPPED* ov = &b_ovs[i];
+      const uint64_t off = g_ple_foff + (addrs[i] - table_va);
+      ov->Offset = (DWORD)(off & 0xffffffffu);
+      ov->OffsetHigh = (DWORD)(off >> 32);
+      BOOL r = ReadFile(fh, staging + i * g_ple_rb, g_ple_rb, nullptr, ov);
+      if (!r && GetLastError() != ERROR_IO_PENDING) {
+        fprintf(stderr, "ple_win: ReadFile row %zu failed: %lu\n", i, GetLastError());
+        abort();
+      }
+    }
+    b_n = n;
+    batch_lk = std::move(lk);
+  }
+  void wait_all() {
+    for (size_t done = 0; done < b_n; done++) {
+      DWORD got = 0;
+      ULONG_PTR key = 0;
+      OVERLAPPED* pov = nullptr;
+      BOOL okr = GetQueuedCompletionStatus(iocp, &got, &key, &pov, INFINITE);
+      const DWORD error = okr ? ERROR_SUCCESS : GetLastError();
+      const size_t slot = completion_slot(pov, b_ovs.data(), b_n, got, error);
+      if (!okr || got != g_ple_rb) {
+        fprintf(stderr, "ple_win: read completion failed (row=%zu, got=%lu, err=%lu)\n",
+                slot, (unsigned long)got, (unsigned long)error);
+        abort();
+      }
+    }
+    b_n = 0;
+    if (batch_lk.owns_lock()) batch_lk.unlock();
+  }
 };
 
+// 读取器，各自独立的句柄与 IOCP：
+//   g_ple_win    同步小批量（decode 每 token 16 行、NOSORT 调试路径），绑定槽的线程调用；
+//   g_ple_win_fls PLE flight（prefill gather：pump 线程 run / 小批 issue+wait_all）。
+// flight 会在 chunk 结束时发起、在后台线程跑到下一个 chunk 的 L0，期间 GPU 可能已
+// 交给另一个槽做 decode。两者共用一个 IOCP 时会互相取走对方的完成包（槽位按
+// OVERLAPPED 地址回推，取错即越界写堆 / 栈上 OVERLAPPED 被提前释放），并发服务下
+// 进程 0xC0000005。flight 同一时刻只有一个（新 flight 前必先 join 旧的），故
+// flight 实例集合天然独占；集合内每个实例只被一个 pump 线程使用（run() 还有
+// run_mu 兜底）。
+// A2：flight 实例数 = GDEC_PLE_RINGS（默认 8，对齐 Linux io_uring 多环）。
+// 单实例单泵实测只有 ~23K IOPS（90B 随机读 47.7 GiB 表，page cache 装不下），
+// 多实例多线程把完成循环的 syscall 开销也并行掉。
+static constexpr int kPleWinFlMax = 16;
 static PleWin g_ple_win;
+static PleWin g_ple_win_fls[kPleWinFlMax];
+static int g_ple_win_nfl = 0;
 
 static void ple_uring_open(const char* path) {
   // 名字沿用 Linux 版本；Windows 下建立 IOCP 句柄
-  g_ple_win.setup(path);
+  g_ple_win_nfl = 0;
+  if (!g_ple_win.setup(path)) return;
+  int want = 8;
+  if (const char* e = getenv("GDEC_PLE_RINGS"))
+    want = std::max(1, std::min(kPleWinFlMax, atoi(e)));
+  for (int i = 0; i < want; i++) {
+    if (!g_ple_win_fls[i].setup(path)) break;
+    g_ple_win_nfl = i + 1;
+  }
+  fprintf(stderr, "ple_win: %d shared flight IOCP pumps, separate synchronous reader\n", g_ple_win_nfl);
 }
 
-static bool ple_uring_ready() { return g_ple_win.ok(); }
-#define PLE_PUMP g_ple_win
+static bool ple_uring_ready() { return g_ple_win.ok() && g_ple_win_nfl > 0; }
+static int ple_pump_count() { return g_ple_win_nfl; }
+#define PLE_PUMP g_ple_win_fls[0]
+#define PLE_PUMP_I(i) g_ple_win_fls[i]
+
+// Queue-backed lookahead already computes addresses on a host worker.
+// Dispatch its reads through the same upstream global readers as inline
+// gather; no request-owned reader pools or duplicate IOCP sets are created.
+static void ple_read_flight_rows(const uint64_t* addresses, uint8_t* staging,
+                                 uint64_t table, size_t rows) {
+  if (!ple_uring_ready()) throw std::runtime_error("PLE flight readers unavailable");
+  const size_t count = rows >= 64 * 16 ? (size_t)ple_pump_count() : 1;
+  if (count == 1) return PLE_PUMP_I(0).run(addresses, staging, table, rows);
+  std::vector<std::thread> workers;
+  std::vector<std::exception_ptr> errors(count);
+  workers.reserve(count);
+  try {
+    for (size_t i = 0; i < count; ++i) workers.emplace_back([&, i] {
+      try {
+        const size_t begin = rows * i / count, end = rows * (i + 1) / count;
+        PLE_PUMP_I(i).run(addresses + begin, staging + begin * g_ple_rb,
+                         table, end - begin);
+      } catch (...) { errors[i] = std::current_exception(); }
+    });
+  } catch (...) {
+    for (auto& worker : workers) worker.join();
+    throw;
+  }
+  for (auto& worker : workers) worker.join();
+  for (const auto& error : errors) if (error) std::rethrow_exception(error);
+}
 
 struct PleWinPrefetch {
   struct Buffer {
@@ -392,7 +507,6 @@ struct PleWinPrefetch {
     hipEvent_t consumed = nullptr;
     bool used = false;
   };
-  PleWin reader;
   std::array<Buffer, 2> buffers;
   std::unique_ptr<ple_prefetch::Queue> queue;
   size_t slot = 0;
@@ -409,7 +523,7 @@ struct PleWinPrefetch {
 
   bool setup(int capacity, const std::vector<int64_t>& history,
              const std::vector<int>& tokens, ple_prefetch::Hash hash) {
-    if (!reader.setup(g_ple_win.path.c_str())) return false;
+    if (!ple_uring_ready()) return false;
     for (auto& buffer : buffers) {
       CK(hipHostMalloc((void**)&buffer.host,
                        (size_t)capacity * 16 * hash.row_bytes,
@@ -420,14 +534,14 @@ struct PleWinPrefetch {
     queue = std::make_unique<ple_prefetch::Queue>(
         history, tokens, hash,
         std::array<uint8_t*, 2>{buffers[0].host, buffers[1].host},
-        [this, hash](const uint64_t* addrs, uint8_t* staging, size_t rows) {
-          reader.run(addrs, staging, hash.table, rows);
+        [hash](const uint64_t* addrs, uint8_t* staging, size_t rows) {
+          ple_read_flight_rows(addrs, staging, hash.table, rows);
         },
         [this](size_t buffer_index) {
           Buffer& buffer = buffers[buffer_index];
           if (buffer.used) CK(hipEventSynchronize(buffer.consumed));
         });
-    fprintf(stderr, "ple_prefetch: enabled (2 x %.1f MiB pinned staging)\n",
+    fprintf(stderr, "ple_prefetch: enabled (2 x %.1f MiB pinned staging, shared global IOCP pumps)\n",
             (double)capacity * 16 * hash.row_bytes / (1024 * 1024));
     return true;
   }
@@ -456,6 +570,13 @@ struct PleWinPrefetch {
 };
 
 #endif  // _WIN32
+
+#ifndef _WIN32
+static void ple_read_flight_rows(const uint64_t* addresses, uint8_t* staging,
+                                 uint64_t table, size_t rows) {
+  PLE_PUMP.run(addresses, staging, table, rows);
+}
+#endif
 
 struct PleWinPrefetch;
 

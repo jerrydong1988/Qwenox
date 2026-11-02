@@ -23,6 +23,7 @@ POOL = 0
 INFO_FILE = None
 TRACE = []
 TRACE_LOCK = threading.Lock()
+IDS_LOG = []  # Test-only wire evidence for count/literal-range requests.
 
 
 def handle(conn):
@@ -119,6 +120,11 @@ def handle(conn):
                 with TRACE_LOCK:
                     send_line(conn, json.dumps(TRACE))
                 continue
+            if line == "IDSLOG":
+                with TRACE_LOCK:
+                    send_line(conn, json.dumps(IDS_LOG))
+                    IDS_LOG.clear()
+                continue
             if line.startswith("X "):
                 record_cancel(int(line.split()[1]))
                 continue
@@ -131,6 +137,8 @@ def handle(conn):
             n_ids_at = 4 + n_eos
             n_ids = int(fields[n_ids_at])
             ids = [int(v) for v in fields[n_ids_at + 1:n_ids_at + 1 + n_ids]]
+            with TRACE_LOCK:
+                IDS_LOG.append(ids)
 
             grids = []
             if "MROPE" in fields:

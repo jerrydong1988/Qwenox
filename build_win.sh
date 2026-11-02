@@ -11,6 +11,7 @@
 #   bash build_win.sh webp-test  # CPU WebP/工具图片回归（测试需要 Pillow）
 #   bash build_win.sh qwen27-test # Qwen27 HGN 格式单测（不加载模型）
 #   TOK_DIR=... bash build_win.sh snap-cuts-test # 检查点切分新旧等价测试
+#   TOK_DIR=... bash build_win.sh literal-test # 控制 token 原文/图像占位符编码回归
 #
 # 前置：TheRock 多架构包（默认 C:\therock-dist-windows-multiarch-10.0.0\...，
 # 可用 THEROCK=/path 覆盖）；GPU_ARCH 默认 gfx1151。
@@ -39,12 +40,12 @@ export HIP_PATH="$TR_WIN"
 unset ROCM_PATH HIP_PATH_64 HIP_PATH_71 HIP_PATH_72
 GPU_ARCH="${GPU_ARCH:-gfx1151}"
 TARGET="${1:-all}"
-[[ "$TARGET" == all || "$TARGET" == engine || "$TARGET" == bench || "$TARGET" == api || "$TARGET" == launcher || "$TARGET" == eng-cli || "$TARGET" == test || "$TARGET" == v2-test || "$TARGET" == v006-test || "$TARGET" == webp-test || "$TARGET" == qwen27-test || "$TARGET" == snap-cuts-test ]] || { sed -n '2,12p' "$0" >&2; exit 2; }
+[[ "$TARGET" == all || "$TARGET" == engine || "$TARGET" == bench || "$TARGET" == api || "$TARGET" == launcher || "$TARGET" == eng-cli || "$TARGET" == test || "$TARGET" == v2-test || "$TARGET" == v006-test || "$TARGET" == webp-test || "$TARGET" == qwen27-test || "$TARGET" == snap-cuts-test || "$TARGET" == literal-test ]] || { sed -n '2,12p' "$0" >&2; exit 2; }
 
 # Host-only targets still use TheRock clang, but need neither HIP nor GPU
 # runtime/database staging. Preserve the existing GPU toolchain for other targets.
 NEED_HIP=1
-[[ "$TARGET" == api || "$TARGET" == launcher || "$TARGET" == eng-cli || "$TARGET" == webp-test || "$TARGET" == qwen27-test || "$TARGET" == snap-cuts-test ]] && NEED_HIP=0
+[[ "$TARGET" == api || "$TARGET" == launcher || "$TARGET" == eng-cli || "$TARGET" == webp-test || "$TARGET" == qwen27-test || "$TARGET" == snap-cuts-test || "$TARGET" == literal-test ]] && NEED_HIP=0
 [[ "$NEED_HIP" == 0 || -x "$HIPCC" ]] || { echo "找不到 TheRock hipcc: $HIPCC（设 THEROCK=...）" >&2; exit 1; }
 mkdir -p build
 for d in msvcp140.dll vcruntime140.dll vcruntime140_1.dll; do
@@ -172,6 +173,15 @@ build_test() {
 }
 
 case "$TARGET" in
+  literal-test)
+    : "${TOK_DIR:?Set TOK_DIR to the model tokenizer directory}"
+    build_webp
+    "$TR/lib/llvm/bin/clang++.exe" -O2 -std=c++17 -D_CRT_SECURE_NO_WARNINGS \
+      -Isrc/api -Ithird_party "${WEBP_FLAGS[@]}" \
+      src/api/tokenizer.cpp src/api/chat_template.cpp src/api/json_py.cpp \
+      src/api/vision.cpp tools/api_literal_test.cpp -o build/api-literal-test.exe
+    build/api-literal-test.exe "$TOK_DIR" "${LITERAL_ROUNDS:-3000}"
+    ;;
   snap-cuts-test)
     : "${TOK_DIR:?Set TOK_DIR to the model tokenizer directory}"
     build_webp
