@@ -5986,7 +5986,7 @@ struct GpuModel {
           const int npump = P >= 64 ? std::min(nt, ple_pump_count()) : 1;
           ple_workers.store(npump);  // address workers also act as I/O pumps
           for (int w = 0; w < nt; w++)
-            ple_pool.emplace_back([&, w] {
+            ple_pool.emplace_back([&, w, npump] {
               const int t0 = (int)((size_t)w * P / nt), t1 = (int)((size_t)(w + 1) * P / nt);
               for (int t = t0; t < t1; t++) {
                 const int at = ple_base0 + t;
