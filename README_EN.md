@@ -1,12 +1,12 @@
-# gfx1151-engine: Windows HGN v2 inference research
+# Qwenox: Windows HGN v2 inference research
 
 ![Strix Halo — Qwen3.8-Flash-Next](media/strix_banner_21x9_v2.png)
 
 *中文：[README.md](README.md)*
 
 This is a research fork of the experimental
-[upstream gfx1151-engine](https://github.com/IIIIIllllIIIIIlllll/gfx1151-engine),
-with historical development on `codex/halogen-v2-support` and the practical mainline on
+[upstream Qwenox](https://github.com/IIIIIllllIIIIIlllll/Qwenox),
+with historical development on `codex/qwen38-27b` and the practical mainline on
 `codex/hybrid-mainline`. Work targets **Windows 11 / Ryzen AI Max+ 395 /
 Radeon 8060S (gfx1151) / 128 GiB unified memory**: Halogen Flash-Next v2 HGN loading,
 expert and prefill kernels, and numerical alignment between serial and MTP decoding.
@@ -353,8 +353,8 @@ Use a separate checkout of this branch, Git Bash, the TheRock ROCm toolchain and
 compatible driver. Set `THEROCK` to your local toolchain directory in Git Bash, then:
 
 ```bash
-git clone --branch codex/halogen-v2-support https://github.com/jerrydong1988/gfx1151-engine.git
-cd gfx1151-engine
+git clone --branch codex/qwen38-27b https://github.com/jerrydong1988/Qwenox.git
+cd Qwenox
 bash build_win.sh
 bash build_win.sh api
 bash build_win.sh launcher

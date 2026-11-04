@@ -23,7 +23,7 @@ ROCm 需要支持 `gfx1151` 的版本。不要把 GPU 架构参数直接套用�
 ```bash
 bash build.sh                 # all:引擎 + benchmark + API 并行编译(默认)
 bash build.sh --bundle        # 分发构建：同时打包全部运行依赖
-bash build.sh engine [名字]   # 只编引擎 → build/<名字>(默认 gdec)
+bash build.sh engine [名字]   # 只编引擎 → build/<名字>(默认 qwenox-engine)
 bash build.sh bench           # 只编独立性能测试工具
 bash build.sh api             # 只编 API 服务器 + CLI 工具
 bash build.sh test            # 编 ktest 并运行 kernel 单测
@@ -33,9 +33,9 @@ bash build.sh test            # 编 ktest 并运行 kernel 单测
 
 | 文件 | 内容 |
 |---|---|
-| `build/gdec` | GPU 引擎(`src/gpu/gdec.cpp`) |
-| `build/gdec-bench` | 独立性能测试工具(`src/gpu/bench_main.cpp`) |
-| `build/gdec-api` | OpenAI 兼容 API 服务器(`src/api/*.cpp`) |
+| `build/qwenox-engine` | GPU 引擎(`src/gpu/qwenox.cpp`) |
+| `build/qwenox-bench` | 独立性能测试工具(`src/gpu/bench_main.cpp`) |
+| `build/qwenox-api` | OpenAI 兼容 API 服务器(`src/api/*.cpp`) |
 | `build/tok_cli` `tpl_cli` `eng_cli` | tokenizer / 模板 / 引擎协议 CLI |
 | `build/http_selftest` `toolparse_test` `vision_test` `engine_host_test` | API / 引擎监听地址组件自测 |
 | `build/ktest` | 引擎 kernel 单测 |
@@ -73,7 +73,7 @@ HIPCC=/opt/rocm/bin/hipcc GPU_ARCH=gfx1151 bash build.sh
 ```bash
 hipcc -O3 -Werror --offload-arch=gfx1151 \
   -Wl,-rpath,'$ORIGIN/lib' -Wl,--disable-new-dtags \
-  -o build/gdec src/gpu/gdec.cpp -lrocblas -lhipblaslt
+  -o build/qwenox-engine src/gpu/qwenox.cpp -lrocblas -lhipblaslt
 ```
 
 上面的 RPATH 参数只在 `--bundle` 分发构建中添加。
@@ -112,7 +112,7 @@ MODEL_BASE=./models/qwen38-flash-next-w4b
 短 token-ID 推理示例(`--tokens` 接收 token ID,文本请走 tokenizer/API):
 
 ```bash
-bash tools/run_capped.sh 86 -- build/gdec \
+bash tools/run_capped.sh 86 -- build/qwenox-engine \
   "$MODEL_BASE.hgn" "$MODEL_BASE.overlay.hgn" \
   --tokens 1,2,3 --gen 8 --maxctx 4096
 ```
@@ -120,7 +120,7 @@ bash tools/run_capped.sh 86 -- build/gdec \
 启动 256K 服务:
 
 ```bash
-bash tools/run_capped.sh 86 -- build/gdec \
+bash tools/run_capped.sh 86 -- build/qwenox-engine \
   "$MODEL_BASE.hgn" "$MODEL_BASE.overlay.hgn" \
   --serve --port 8730 --maxctx 262144 --gamma 3 \
   --vision-tower ./models/qwen38-flash-next-vision.hgn
@@ -129,7 +129,7 @@ bash tools/run_capped.sh 86 -- build/gdec \
 等引擎打印 `serve: listening`,在另一个终端启动 API:
 
 ```bash
-build/gdec-api --tokenizer ./models/tokenizer \
+build/qwenox-api --tokenizer ./models/tokenizer \
   --engine 127.0.0.1:8730 --host 127.0.0.1 --port 8731 --context 262144
 ```
 
@@ -139,11 +139,11 @@ build/gdec-api --tokenizer ./models/tokenizer \
 API 断连回归无需 GPU 或模型权重：测试会在临时目录创建合成词表，启动本地
 假引擎与 API，覆盖三个生成端点的流式/非流式断连、预填充、排队、协议收尾
 及下一请求。先编译 API，再运行（Windows 的 `--api` 改为
-`build/gdec-api-win.exe`）：
+`build/qwenox-win.exe`）：
 
 ```bash
-python tools/api_disconnect_test.py --api build/gdec-api
-python tools/api_disconnect_test.py --api build/gdec-api --slots 2
+python tools/api_disconnect_test.py --api build/qwenox-api
+python tools/api_disconnect_test.py --api build/qwenox-api --slots 2
 ```
 
 引擎监听地址与启动配置回归（均无需模型）：
@@ -163,7 +163,7 @@ Windows 版有独立入口，与 build.sh / start_hgn.sh 并列，覆盖引擎�
 ```bash
 bash build_win.sh           # 全部产物:引擎、benchmark、API、启动器
 bash build_win.sh bench     # 只编独立性能测试工具
-bash build_win.sh api       # OpenAI API 前端 → build/gdec-api-win.exe
+bash build_win.sh api       # OpenAI API 前端 → build/qwenox-win.exe
 bash build_win.sh launcher  # 免脚本启动器 → ./start_win.exe
 bash build_win.sh test      # 编 ktest-win 并运行 kernel 单测
 bash start_win.sh           # Git Bash 下起引擎(行协议 8730) + API(8731) 双进程

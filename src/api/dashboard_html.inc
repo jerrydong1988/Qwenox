@@ -7,7 +7,7 @@ static const char kDashboardHtml[] = R"HTMLDOC(<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>gfx1151 控制台</title>
+    <title>Qwenox 控制台</title>
     <style>
       :root {
         color-scheme: dark;
@@ -1724,7 +1724,7 @@ static const char kDashboardHtml[] = R"HTMLDOC(<!doctype html>
     <aside class="sidebar">
       <a class="brand" href="#overview"
         ><div class="brand-mark" data-icon="chip"></div>
-        <span><strong>gfx1151</strong><small>ENGINE CONSOLE</small></span></a
+        <span><strong>Qwenox</strong><small>ENGINE CONSOLE</small></span></a
       >
       <div class="nav-caption">工作空间</div>
       <nav class="nav" aria-label="控制台导航">
@@ -2238,7 +2238,7 @@ static const char kDashboardHtml[] = R"HTMLDOC(<!doctype html>
           </section>
         </section>
         <footer class="page-footer">
-          <span>gfx1151 engine · 本地控制台</span
+          <span>Qwenox · 本地控制台</span
           ><span id="poll-state">API 状态每 2 秒 · 请求统计每 10 秒</span>
         </footer>
       </main>
@@ -2436,7 +2436,7 @@ static const char kDashboardHtml[] = R"HTMLDOC(<!doctype html>
         txt("page-label", titles[page][0]);
         txt("page-title", titles[page][0]);
         txt("page-description", titles[page][1]);
-        document.title = titles[page][0] + " · gfx1151 控制台";
+        document.title = titles[page][0] + " · Qwenox 控制台";
         $("reqs-range").hidden = !["overview", "requests"].includes(page);
         $("reqs-err").hidden = !["overview", "requests"].includes(page);
         updateRefreshMeta();

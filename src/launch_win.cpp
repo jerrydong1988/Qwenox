@@ -67,7 +67,7 @@ std::wstring to_w(const std::string& s) {
 }
 
 int msgbox(const std::string& text, UINT flags) {
-    return MessageBoxW(nullptr, to_w(text).c_str(), L"gfx1151-engine",
+    return MessageBoxW(nullptr, to_w(text).c_str(), L"Qwenox",
                        flags | MB_SETFOREGROUND | MB_TOPMOST);
 }
 
@@ -109,6 +109,40 @@ void pause_if_own_console() {
 bool file_exists(const std::string& path) {
     DWORD a = GetFileAttributesA(path.c_str());
     return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+std::string engine_executable() {
+    return file_exists("build\\qwenox-engine-win.exe")
+        ? "build\\qwenox-engine-win.exe" : "build\\gdec-win.exe";
+}
+
+std::string api_executable() {
+    return file_exists("build\\qwenox-win.exe")
+        ? "build\\qwenox-win.exe" : "build\\gdec-api-win.exe";
+}
+
+std::string canonical_root(const std::string& path) {
+    HANDLE h = CreateFileA(path.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                          nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return path;
+    char resolved[32768];
+    DWORD n = GetFinalPathNameByHandleA(h, resolved, sizeof resolved, FILE_NAME_NORMALIZED);
+    CloseHandle(h);
+    if (!n || n >= sizeof resolved) return path;
+    std::string result(resolved, n);
+    if (result.compare(0, 4, "\\\\?\\") == 0) result.erase(0, 4);
+    return result;
+}
+
+std::wstring instance_mutex_name() {
+    // Directory identity keeps Flash and Qwen27 independent. Canonicalization
+    // makes the old junction and the renamed directory share one mutex.
+    unsigned long long hash = 14695981039346656037ULL;
+    for (unsigned char c : g_root) {
+        hash ^= static_cast<unsigned char>(std::tolower(c));
+        hash *= 1099511628211ULL;
+    }
+    return L"Local\\Qwenox-start_win-" + std::to_wstring(hash);
 }
 
 // 两个路径是否同一文件（卷序列号 + 文件 ID；打不开时退回字符串比较）。
@@ -579,7 +613,7 @@ std::string local_base() {
 // 返回先退出的子进程（0 引擎 / 1 API），*code 为其退出码；用户主动退出时返回 -1
 int run_service(DWORD* code) {
     const Plan& p = g_plan;
-    Child engine = spawn("engine", "build\\gdec-win.exe", p.engine_args, p.engine_log);
+    Child engine = spawn("engine", engine_executable(), p.engine_args, p.engine_log);
     g_children[0] = engine.proc;
 
     ULONGLONG deadline = GetTickCount64() + static_cast<ULONGLONG>(p.start_timeout) * 1000;
@@ -592,7 +626,7 @@ int run_service(DWORD* code) {
     }
 
     report(kApiStarting);
-    Child api = spawn("api", "build\\gdec-api-win.exe", p.api_args, p.api_log);
+    Child api = spawn("api", api_executable(), p.api_args, p.api_log);
     g_children[1] = api.proc;
 
     deadline = GetTickCount64() + 30000;
@@ -641,7 +675,7 @@ std::wstring status_text() {
 }
 
 void tray_update_tip() {
-    const std::wstring tip = L"gfx1151-engine · " + status_text();
+    const std::wstring tip = L"Qwenox · " + status_text();
     g_nid.uFlags = NIF_TIP;
     lstrcpynW(g_nid.szTip, tip.c_str(), ARRAYSIZE(g_nid.szTip));
     if (g_tray_added) Shell_NotifyIconW(NIM_MODIFY, &g_nid);
@@ -681,7 +715,7 @@ void tray_add() {
     g_nid.hIcon = small_icon ? small_icon
                              : LoadIconA(nullptr, IDI_APPLICATION);  // 未定义 UNICODE：IDI_* 是窄串
     g_nid.hBalloonIcon = big_icon;
-    const std::wstring tip = L"gfx1151-engine · " + status_text();
+    const std::wstring tip = L"Qwenox · " + status_text();
     lstrcpynW(g_nid.szTip, tip.c_str(), ARRAYSIZE(g_nid.szTip));
     // 开机自启时任务栏可能还没起来：失败就等 TaskbarCreated 再加
     if (Shell_NotifyIconW(NIM_ADD, &g_nid)) InterlockedExchange(&g_tray_added, 1);
@@ -821,10 +855,10 @@ int tray_main() {
     WNDCLASSW wc{};
     wc.lpfnWndProc = wnd_proc;
     wc.hInstance = hi;
-    wc.lpszClassName = L"gfx1151_start_win";
+    wc.lpszClassName = L"Qwenox_start_win";
     RegisterClassW(&wc);
     // 普通的隐藏顶层窗口（不 ShowWindow）：消息窗口收不到 TaskbarCreated 广播
-    g_hwnd = CreateWindowExW(0, wc.lpszClassName, L"gfx1151-engine", WS_OVERLAPPED, 0, 0, 0, 0,
+    g_hwnd = CreateWindowExW(0, wc.lpszClassName, L"Qwenox", WS_OVERLAPPED, 0, 0, 0, 0,
                              nullptr, nullptr, hi, nullptr);
     if (!g_hwnd) fail("无法创建托盘窗口，错误码 " + std::to_string(GetLastError()));
     g_wm_taskbar_created = RegisterWindowMessageW(L"TaskbarCreated");
@@ -861,6 +895,7 @@ int main(int argc, char** argv) {
     g_root = exe_path;
     size_t slash = g_root.find_last_of("\\/");
     g_root = slash == std::string::npos ? "." : g_root.substr(0, slash);
+    g_root = canonical_root(g_root);
     SetCurrentDirectoryA(g_root.c_str());
 
     {
@@ -880,7 +915,7 @@ int main(int argc, char** argv) {
 
     // 防多开（--check 不受限）。句柄不关，进程退出时系统回收。
     if (!check_only) {
-        CreateMutexW(nullptr, FALSE, L"Local\\gfx1151-engine-start_win");
+        CreateMutexW(nullptr, FALSE, instance_mutex_name().c_str());
         if (GetLastError() == ERROR_ALREADY_EXISTS)
             fail("start_win.exe 已经在运行了（看任务栏右下角的托盘图标，"
                  "可能藏在 ^ 展开区里）。");
@@ -930,8 +965,8 @@ int main(int argc, char** argv) {
         fail("ENGINE_HOST 必须是 IPv4 地址");
     if (engine_port == api_port) fail("ENGINE_PORT 与 API_PORT 必须不同");
     if (parallel > 1 && !kv_paged) fail("PARALLEL>1 需要 KV_PAGED=1");
-    if (!file_exists("build\\gdec-win.exe")) fail("缺少 build\\gdec-win.exe");
-    if (!file_exists("build\\gdec-api-win.exe")) fail("缺少 build\\gdec-api-win.exe");
+    if (!file_exists(engine_executable())) fail("缺少 build\\qwenox-engine-win.exe");
+    if (!file_exists(api_executable())) fail("缺少 build\\qwenox-win.exe");
     if (!file_exists(model_file)) fail("找不到模型：" + model_file + "（修改 service.conf）");
     if (!file_exists(ngram_file))
         fail("找不到 n-gram 表：" + ngram_file + "（w4b 与 MODEL_FILE 相同，修改 service.conf）");
@@ -1059,6 +1094,8 @@ int main(int argc, char** argv) {
         FreeEnvironmentStringsA(environment);
     }
     if (check_only) {
+        printf("程序：%s / %s\n", engine_executable().c_str(), api_executable().c_str());
+        printf("实例：%ls\n", instance_mutex_name().c_str());
         printf("检查通过；没有启动引擎或 API。\n");
         fflush(stdout);
         pause_if_own_console();

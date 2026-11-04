@@ -3,8 +3,8 @@
 #
 # 用法:
 #   bash build_win.sh            # 全部产物：引擎、benchmark、API、启动器
-#   bash build_win.sh bench      # 性能测试工具 → build/gdec-bench.exe
-#   bash build_win.sh api        # OpenAI HTTP 前端 → build/gdec-api-win.exe
+#   bash build_win.sh bench      # 性能测试工具 → build/qwenox-bench.exe
+#   bash build_win.sh api        # OpenAI HTTP 前端 → build/qwenox-win.exe
 #   bash build_win.sh launcher   # 免脚本启动器 → ./start_win.exe（双击即用，托盘程序）
 #   bash build_win.sh eng-cli    # 引擎协议诊断客户端 → build/eng-cli-win.exe
 #   bash build_win.sh test       # 编 build/ktest-win.exe 并运行 kernel 单测
@@ -12,9 +12,9 @@
 #   bash build_win.sh qwen27-test # Qwen27 HGN 格式单测（不加载模型）
 #   TOK_DIR=... bash build_win.sh snap-cuts-test # 检查点切分新旧等价测试
 #   TOK_DIR=... bash build_win.sh literal-test # 控制 token 原文/图像占位符编码回归
-#   GDEC_ENGINE_OUT=build/gdec-candidate.exe bash build_win.sh engine
-#   GDEC_API_OUT=build/gdec-api-candidate.exe bash build_win.sh api
-#                                # 独立候选产物，不覆盖默认 exe；输出目录须已存在
+#   QWENOX_ENGINE_OUT=build/qwenox-engine-candidate.exe bash build_win.sh engine
+#   QWENOX_API_OUT=build/qwenox-api-candidate.exe bash build_win.sh api
+#                                # 独立候选产物；GDEC_*_OUT 旧名兼容，目录须已存在
 #
 # 前置：TheRock 多架构包（默认 C:\therock-dist-windows-multiarch-10.0.0\...，
 # 可用 THEROCK=/path 覆盖）；GPU_ARCH 默认 gfx1151。
@@ -93,22 +93,22 @@ FLAGS=(-O3 -std=c++17 --offload-arch="$GPU_ARCH" -D_CRT_SECURE_NO_WARNINGS
        -I"$TR/include" -Lbuild/winlibs -lrocblas -lhipblaslt)
 
 build_engine() {
-    local out="${GDEC_ENGINE_OUT:-build/gdec-win.exe}"
+    local out="${QWENOX_ENGINE_OUT:-${GDEC_ENGINE_OUT:-build/qwenox-engine-win.exe}}"
     echo "[编译] $out"
     # 先编到临时文件再原子替换，编译失败保留上次成功的二进制（对齐 Linux build.sh）
-    "$HIPCC" "${FLAGS[@]}" src/gpu/gdec.cpp -o "$out.tmp" \
+    "$HIPCC" "${FLAGS[@]}" src/gpu/qwenox.cpp -o "$out.tmp" \
       && mv -f "$out.tmp" "$out"
 }
 
 build_bench() {
-    echo "[编译] build/gdec-bench.exe"
+    echo "[编译] build/qwenox-bench.exe"
     "$HIPCC" "${FLAGS[@]}" -std=c++17 -Ithird_party src/gpu/bench_main.cpp \
-      -o build/gdec-bench.exe.tmp \
-      && mv -f build/gdec-bench.exe.tmp build/gdec-bench.exe
+      -o build/qwenox-bench.exe.tmp \
+      && mv -f build/qwenox-bench.exe.tmp build/qwenox-bench.exe
 }
 
 build_api() {
-    local out="${GDEC_API_OUT:-build/gdec-api-win.exe}"
+    local out="${QWENOX_API_OUT:-${GDEC_API_OUT:-build/qwenox-win.exe}}"
     # OpenAI HTTP 前端：纯主机 C++，用 TheRock 自带 clang++（不拖 HIP 依赖）。
     # PNG/JPEG 使用 stb_image，WebP 使用固定版本静态解码库；均无新增 DLL。
     CXX="$TR/lib/llvm/bin/clang++.exe"

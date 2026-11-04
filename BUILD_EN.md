@@ -35,9 +35,9 @@ Artifacts:
 
 | File | Contents |
 |---|---|
-| `build/gdec` | GPU engine (`src/gpu/gdec.cpp`) |
-| `build/gdec-bench` | Standalone performance benchmark (`src/gpu/bench_main.cpp`) |
-| `build/gdec-api` | OpenAI-compatible API server (`src/api/*.cpp`) |
+| `build/qwenox-engine` | GPU engine (`src/gpu/qwenox.cpp`) |
+| `build/qwenox-bench` | Standalone performance benchmark (`src/gpu/bench_main.cpp`) |
+| `build/qwenox-api` | OpenAI-compatible API server (`src/api/*.cpp`) |
 | `build/tok_cli` `tpl_cli` `eng_cli` | tokenizer / template / engine protocol CLIs |
 | `build/http_selftest` `toolparse_test` `vision_test` `engine_host_test` | API / engine listen-address component self-tests |
 | `build/ktest` | engine kernel unit tests |
@@ -80,7 +80,7 @@ Engine:
 ```bash
 hipcc -O3 -Werror --offload-arch=gfx1151 \
   -Wl,-rpath,'$ORIGIN/lib' -Wl,--disable-new-dtags \
-  -o build/gdec src/gpu/gdec.cpp -lrocblas -lhipblaslt
+  -o build/qwenox-engine src/gpu/qwenox.cpp -lrocblas -lhipblaslt
 ```
 
 The RPATH flags above are added only to `--bundle` distribution builds.
@@ -124,7 +124,7 @@ Short token-ID inference example (`--tokens` accepts token IDs; for text go
 through the tokenizer/API):
 
 ```bash
-bash tools/run_capped.sh 86 -- build/gdec \
+bash tools/run_capped.sh 86 -- build/qwenox-engine \
   "$MODEL_BASE.hgn" "$MODEL_BASE.overlay.hgn" \
   --tokens 1,2,3 --gen 8 --maxctx 4096
 ```
@@ -132,7 +132,7 @@ bash tools/run_capped.sh 86 -- build/gdec \
 Launch a 256K service:
 
 ```bash
-bash tools/run_capped.sh 86 -- build/gdec \
+bash tools/run_capped.sh 86 -- build/qwenox-engine \
   "$MODEL_BASE.hgn" "$MODEL_BASE.overlay.hgn" \
   --serve --port 8730 --maxctx 262144 --gamma 3 \
   --vision-tower ./models/qwen38-flash-next-vision.hgn
@@ -142,7 +142,7 @@ Wait until the engine prints `serve: listening`, then start the API in
 another terminal:
 
 ```bash
-build/gdec-api --tokenizer ./models/tokenizer \
+build/qwenox-api --tokenizer ./models/tokenizer \
   --engine 127.0.0.1:8730 --host 127.0.0.1 --port 8731 --context 262144
 ```
 
@@ -154,11 +154,11 @@ The API disconnect regression needs no GPU or model weights: it creates a
 synthetic tokenizer in a temporary directory and starts a local fake engine
 and API. It covers streaming/non-streaming disconnects on all three generation
 endpoints, prefill, queuing, protocol draining, and the next request. Build the
-API first; on Windows, use `--api build/gdec-api-win.exe` instead:
+API first; on Windows, use `--api build/qwenox-win.exe` instead:
 
 ```bash
-python tools/api_disconnect_test.py --api build/gdec-api
-python tools/api_disconnect_test.py --api build/gdec-api --slots 2
+python tools/api_disconnect_test.py --api build/qwenox-api
+python tools/api_disconnect_test.py --api build/qwenox-api --slots 2
 ```
 
 Engine listen-address and launcher configuration regressions (no model needed):
@@ -180,7 +180,7 @@ PORTING-WINDOWS_EN.md):
 ```bash
 bash build_win.sh           # all artifacts: engine, benchmark, API, launcher
 bash build_win.sh bench     # standalone performance benchmark only
-bash build_win.sh api       # OpenAI API frontend → build/gdec-api-win.exe
+bash build_win.sh api       # OpenAI API frontend → build/qwenox-win.exe
 bash build_win.sh launcher  # script-free launcher → ./start_win.exe
 bash build_win.sh test      # build ktest-win and run kernel unit tests
 bash start_win.sh           # under Git Bash: start engine (line protocol 8730) + API (8731) as two processes

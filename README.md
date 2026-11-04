@@ -1,11 +1,11 @@
-# gfx1151-engine：Windows HGN v2 推理优化分支
+# Qwenox：Windows HGN v2 推理优化分支
 
 ![Strix Halo — Qwen3.8-Flash-Next](media/strix_banner_21x9_v2.png)
 
 *English: [README_EN.md](README_EN.md)*
 
-这是 [gfx1151-engine 上游实验项目](https://github.com/IIIIIllllIIIIIlllll/gfx1151-engine)
-的研究 Fork，历史开发分支为 `codex/halogen-v2-support`；当前实用主线为
+这是 [Qwenox 上游实验项目](https://github.com/IIIIIllllIIIIIlllll/Qwenox)
+的研究 Fork，历史开发分支为 `codex/qwen38-27b`；当前实用主线为
 `codex/hybrid-mainline`。面向 **Windows 11 /
 Ryzen AI Max+ 395 / Radeon 8060S（gfx1151）/ 128 GiB 统一内存**，重点是
 Halogen Flash-Next v2 HGN 格式支持、专家计算与 Prefill 优化，以及串行/MTP 的数值对齐。
@@ -315,8 +315,8 @@ Responses 的流式/非流式错误中均附带 `error.details`，诊断不回�
 在 Git Bash 中设置 `THEROCK` 为本机工具链目录，再构建：
 
 ```bash
-git clone --branch codex/halogen-v2-support https://github.com/jerrydong1988/gfx1151-engine.git
-cd gfx1151-engine
+git clone --branch codex/qwen38-27b https://github.com/jerrydong1988/Qwenox.git
+cd Qwenox
 bash build_win.sh
 bash build_win.sh api
 bash build_win.sh launcher

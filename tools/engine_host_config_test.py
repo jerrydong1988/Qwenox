@@ -43,7 +43,8 @@ def main():
         for name in ("start_hgn.sh", "start_gguf.sh", "start_win.sh", "tools/serve_common.sh"):
             (root / name).write_text((source / name).read_text(encoding="utf-8"),
                                      encoding="utf-8", newline="\n")
-        for name in ("gdec", "gdec-api", "gdec-win.exe", "gdec-api-win.exe"):
+        for name in ("gdec", "gdec-api", "gdec-win.exe", "gdec-api-win.exe",
+                     "qwenox-engine", "qwenox-api", "qwenox-engine-win.exe", "qwenox-win.exe"):
             (root / "build" / name).write_text("#!/usr/bin/env bash\nexit 0\n", newline="\n")
             (root / "build" / name).chmod(0o755)
         for name in ("qwen38-flash-next-w4b.hgn", "qwen38-flash-next-w4b.overlay.hgn",

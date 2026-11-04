@@ -10,7 +10,7 @@ bash start_hgn.sh    # hgn weights (converted with tools/flashnext2hgn.py)
 bash start_gguf.sh   # or GGUF weights (Unsloth UD-Q4_K_XL, the same files llama.cpp uses)
 ```
 
-`build.sh` compiles the GPU engine and the native API in one pass, producing `build/gdec` and `build/gdec-api`.
+`build.sh` compiles the GPU engine and the native API in one pass, producing `build/qwenox-engine` and `build/qwenox-api`.
 Apart from which weights they read, the two launchers are identical: they load the engine first, then start the
 API once it is ready. Defaults: 256K context, MTP gamma 3. Press **Ctrl+C** to stop both the API and the engine
 started this time. Startup does not exit the terminal; keep the SSH session open, or run it in tmux. The old
