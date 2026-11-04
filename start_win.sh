@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Windows (TheRock) 启动入口：与 Linux start.sh 并列。
 # 起引擎（行协议 ENGINE_PORT，默认 8730）+ OpenAI HTTP API 前端
-# （gdec-api-win，API_PORT，默认 8731）；Ctrl+C 同时停两者。
+# （qwenox-win，API_PORT，默认 8731）；Ctrl+C 同时停两者。
 #
 # 用法:
 #   bash start_win.sh            # 前台运行，Ctrl+C 停止
@@ -95,8 +95,12 @@ awk "BEGIN { exit !($ROPE_FACTOR <= 1 || $MAX_CONTEXT <= $ROPE_FACTOR * $ROPE_OR
 awk "BEGIN { exit !($ROPE_FACTOR > 1 || $MAX_CONTEXT <= $ROPE_ORIGINAL_CTX) }" || \
   echo "警告：ROPE_FACTOR=1 且 MAX_CONTEXT=$MAX_CONTEXT 超过原生 $ROPE_ORIGINAL_CTX，超出部分的位置编码未验证（需要时请设 ROPE_FACTOR）" >&2
 (( PARALLEL == 1 || KV_PAGED )) || fail 'PARALLEL>1 需要 KV_PAGED=1'
-[[ -f build/gdec-win.exe ]] || fail '缺少 build/gdec-win.exe，请先运行 bash build_win.sh'
-[[ -f build/gdec-api-win.exe ]] || fail '缺少 build/gdec-api-win.exe，请先运行 bash build_win.sh api'
+ENGINE_EXE=build/qwenox-engine-win.exe
+[[ -f "$ENGINE_EXE" ]] || ENGINE_EXE=build/gdec-win.exe
+API_EXE=build/qwenox-win.exe
+[[ -f "$API_EXE" ]] || API_EXE=build/gdec-api-win.exe
+[[ -f "$ENGINE_EXE" ]] || fail '缺少 build/qwenox-engine-win.exe，请先运行 bash build_win.sh'
+[[ -f "$API_EXE" ]] || fail '缺少 build/qwenox-win.exe，请先运行 bash build_win.sh api'
 [[ -r "$MODEL_FILE" ]] || fail "找不到模型：$MODEL_FILE"
 [[ -r "$NGRAM_FILE" ]] || fail "找不到 n-gram 表：$NGRAM_FILE（w4b 与 MODEL_FILE 相同）"
 [[ -z "$MTP_FILE" || -r "$MTP_FILE" ]] || fail "找不到 MTP 权重：$MTP_FILE"
@@ -159,7 +163,7 @@ export GDEC_ROPE_ATTN_SCALE="$ROPE_ATTN_SCALE"
 mkdir -p logs
 ENGINE_LOG="logs/engine-win-$(date +%Y%m%d-%H%M%S).log"
 
-engine=(build/gdec-win.exe "$MODEL_FILE")
+engine=("$ENGINE_EXE" "$MODEL_FILE")
 [[ -z "$OVERLAY_FILE" ]] || engine+=("$OVERLAY_FILE")
 [[ "$NGRAM_FILE" -ef "$MODEL_FILE" ]] || engine+=("$NGRAM_FILE")
 [[ -z "$MTP_FILE" ]] || engine+=("$MTP_FILE")
@@ -189,7 +193,7 @@ until grep -q 'serve: listening' "$ENGINE_LOG" 2>/dev/null; do
   sleep 2
 done
 
-build/gdec-api-win.exe --tokenizer "$TOKENIZER_DIR" \
+"$API_EXE" --tokenizer "$TOKENIZER_DIR" \
   --engine "$engine_connect_host:$ENGINE_PORT" --host "$API_HOST" \
   --port "$API_PORT" --context "$MAX_CONTEXT" >"$API_LOG" 2>&1 &
 api_pid=$!

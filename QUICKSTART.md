@@ -10,7 +10,7 @@ bash start_hgn.sh    # hgn 权重(tools/flashnext2hgn.py 转换得到)
 bash start_gguf.sh   # 或 GGUF 权重(Unsloth UD-Q4_K_XL,与 llama.cpp 同一份文件)
 ```
 
-`build.sh` 一次编译 GPU 引擎和原生 API,输出 `build/gdec`、`build/gdec-api`。
+`build.sh` 一次编译 GPU 引擎和原生 API,输出 `build/qwenox-engine`、`build/qwenox-api`。
 两个启动器除了读哪份权重之外完全相同:先加载引擎,等就绪后启动 API。
 默认 256K 上下文、MTP gamma 3。按 **Ctrl+C** 同时停止本次启动的 API 和引擎。
 启动不会退出终端;保持 SSH 会话打开,或在 tmux 中运行。旧的 `start.sh`
@@ -137,7 +137,7 @@ curl -X POST http://127.0.0.1:8731/admin/overrides -H 'Content-Type: application
 ```
 
 表持久化在 `data/api-overrides.json`(相对启动目录,重启后自动加载);
-`gdec-api --overrides FILE` 可改路径,`--overrides ''` 表示只放内存。默认
+`qwenox-api --overrides FILE` 可改路径,`--overrides ''` 表示只放内存。默认
 任何能访问 API 的人都能修改覆盖表(与 API 本身同样开放)。需要限制时在
 启动 API 的环境里设置 `GDEC_API_ADMIN_KEY=<密钥>`,之后 POST 必须带
 `X-Admin-Key: <密钥>` 或 `Authorization: Bearer <密钥>`;控制台会显示

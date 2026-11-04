@@ -88,7 +88,11 @@ serve_init() {
   (( MTP_GAMMA <= 8 )) || fail 'MTP_GAMMA 范围为 0–8（0=引擎按模式自选 greedy 4 / 采样自适应）'
   for cmd in flock ss systemctl stat awk pgrep setsid; do command -v "$cmd" >/dev/null || fail "缺少命令：$cmd"; done
   systemctl --user show-environment >/dev/null || fail 'systemd 用户会话不可用，请通过普通用户 SSH 登录运行'
-  [[ -x build/gdec && -x build/gdec-api ]] || fail '缺少编译产物，请先运行 bash build.sh'
+  ENGINE_EXE="$ROOT/build/qwenox-engine"
+  [[ -x "$ENGINE_EXE" ]] || ENGINE_EXE="$ROOT/build/gdec"
+  API_EXE="$ROOT/build/qwenox-api"
+  [[ -x "$API_EXE" ]] || API_EXE="$ROOT/build/gdec-api"
+  [[ -x "$ENGINE_EXE" && -x "$API_EXE" ]] || fail '缺少编译产物，请先运行 bash build.sh'
   # 权重格式只由启动器决定：外部残留的 GDEC_GGUF* 一律清掉，GGUF 启动器再按 service.conf 导出。
   unset GDEC_GGUF GDEC_GGUF_DENSE GDEC_GGUF_MTP GDEC_GGUF_MTP_EXPERTS GDEC_GGUF_PLE GDEC_GGUF_DENSE_FILTER
 }
@@ -168,7 +172,7 @@ serve_run() {
   if (( MTP_GAMMA > 0 )); then export GDEC_SPEC_GAMMA="$MTP_GAMMA"; fi
   local engine_connect_host="$ENGINE_HOST"
   if [[ "$engine_connect_host" == 0.0.0.0 ]]; then engine_connect_host=127.0.0.1; fi
-  local engine=("$ROOT/build/gdec" "${MODEL_ARGS[@]}" --serve --host "$ENGINE_HOST" --port "$ENGINE_PORT" --maxctx "$MAX_CONTEXT")
+  local engine=("$ENGINE_EXE" "${MODEL_ARGS[@]}" --serve --host "$ENGINE_HOST" --port "$ENGINE_PORT" --maxctx "$MAX_CONTEXT")
   [[ -z "$VISION" ]] || engine+=(--vision-tower "$VISION")
 
   echo "项目：$ROOT"
@@ -196,7 +200,7 @@ serve_run() {
   exec 9>logs/.service.lock
   flock -n 9 || fail '本目录已有启动脚本在运行'
   exec 8>"${XDG_RUNTIME_DIR:-/run/user/$UID}/hgn-work.lock"
-  flock -n 8 || fail '另一个 gfx1151-engine 编译或启动任务正在运行'
+  flock -n 8 || fail '另一个 Qwenox 编译或启动任务正在运行'
   RUN_LOG_DIR="logs/$(date +%Y%m%d-%H%M%S)-$$"
   mkdir "$RUN_LOG_DIR"
   ENGINE_LOG="$RUN_LOG_DIR/engine.log"
@@ -224,7 +228,7 @@ serve_run() {
     sleep 1
   done
   kill -0 "$engine_pid" 2>/dev/null || fail '引擎已退出'
-  "$ROOT/build/gdec-api" --tokenizer "$TOKENIZER_DIR" \
+  "$API_EXE" --tokenizer "$TOKENIZER_DIR" \
     --engine "$engine_connect_host:$ENGINE_PORT" --host "$API_HOST" \
     --port "$API_PORT" --context "$MAX_CONTEXT" >"$API_LOG" 2>&1 9>&- 8>&- &
   api_pid=$!

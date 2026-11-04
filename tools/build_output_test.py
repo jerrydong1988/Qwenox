@@ -48,13 +48,13 @@ FLAGS=(-O3 -std=c++17 --offload-arch=gfx1151)
 build_webp() { WEBP_FLAGS=(-Iwebp-stub); }
 ''' + functions + '\n"build_$1"\n', encoding='utf-8', newline='\n')
         rows = []
-        for target, variable, default in [('engine', 'GDEC_ENGINE_OUT', 'gdec-win.exe'),
-                                           ('api', 'GDEC_API_OUT', 'gdec-api-win.exe')]:
-            for kind in ['default', 'empty', 'relative-space', 'absolute-space']:
+        for target, variable, default in [('engine', 'QWENOX_ENGINE_OUT', 'qwenox-engine-win.exe'),
+                                           ('api', 'QWENOX_API_OUT', 'qwenox-win.exe')]:
+            for kind in ['default', 'empty', 'relative-space', 'absolute-space', 'legacy', 'precedence']:
                 for fail in [False, True]:
                     case = work / f'{target}-{kind}-{int(fail)}'
                     (case / 'build').mkdir(parents=True)
-                    defaults = [case / 'build/gdec-win.exe', case / 'build/gdec-api-win.exe']
+                    defaults = [case / 'build/qwenox-engine-win.exe', case / 'build/qwenox-win.exe']
                     for path in defaults:
                         path.write_bytes(b'existing-default')
                     candidate = case / 'build/candidate with spaces.exe'
@@ -63,7 +63,13 @@ build_webp() { WEBP_FLAGS=(-Iwebp-stub); }
                            if not k.startswith(('GDEC_', 'QWENOX_'))}
                     env.update(TR=sdk.as_posix(), FAKE_DRIVER=driver.as_posix(),
                                COMPILE_TRACE=str(case / 'args.jsonl'), COMPILE_FAIL=str(int(fail)))
-                    if kind != 'default':
+                    legacy = variable.replace('QWENOX_', 'GDEC_')
+                    if kind == 'legacy':
+                        env[legacy] = candidate.as_posix()
+                    elif kind == 'precedence':
+                        env[variable] = candidate.as_posix()
+                        env[legacy] = (case / 'build' / default).as_posix()
+                    elif kind != 'default':
                         env[variable] = {'empty': '', 'relative-space': 'build/candidate with spaces.exe',
                                          'absolute-space': candidate.as_posix()}[kind]
                     expected = case / 'build' / default if kind in ['default', 'empty'] else candidate

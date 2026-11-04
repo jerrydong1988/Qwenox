@@ -1,4 +1,4 @@
-// main.cpp — gdec-api: C++ OpenAI-compatible front-end.
+// main.cpp — qwenox: C++ OpenAI-compatible front-end.
 //
 // Independently implements the OpenAI-compatible front-end from public API
 // schemas and project-owned black-box conformance fixtures. The tokenizer and
@@ -342,7 +342,7 @@ class TokenCache {
         }
         ok = fclose(f) == 0 && ok;
         if (!ok) {
-            fprintf(stderr, "gdec-api: tcache: save %s failed: %s\n", tmp.c_str(),
+            fprintf(stderr, "qwenox: tcache: save %s failed: %s\n", tmp.c_str(),
                     strerror(errno));
             remove(tmp.c_str());
             return;
@@ -382,10 +382,10 @@ class TokenCache {
             entries = entries_.size();
         }
         if (!ok)
-            fprintf(stderr, "gdec-api: tcache: %s truncated/mismatched, loaded what parsed\n",
+            fprintf(stderr, "qwenox: tcache: %s truncated/mismatched, loaded what parsed\n",
                     file_.c_str());
         if (entries)
-            fprintf(stderr, "gdec-api: tcache: loaded %zu entries (%zu tokens) from %s\n",
+            fprintf(stderr, "qwenox: tcache: loaded %zu entries (%zu tokens) from %s\n",
                     entries, tokens, file_.c_str());
     }
 
@@ -594,7 +594,7 @@ std::vector<int> default_ckpt_tokens() {
             if (!names.empty()) names += ",";
             names += std::to_string(id);
         }
-        fprintf(stderr, "gdec-api: ckpt tokens: %s\n", names.c_str());
+        fprintf(stderr, "qwenox: ckpt tokens: %s\n", names.c_str());
     }
     return ids;
 }
@@ -1238,13 +1238,13 @@ void load_overrides() {
     if (!f) return;  // no file yet: every field follows the client
     try {
         g_overrides = validate_overrides(json::parse(f));
-        fprintf(stderr, "gdec-api: overrides from %s: %s\n", g_cfg.overrides_path.c_str(),
+        fprintf(stderr, "qwenox: overrides from %s: %s\n", g_cfg.overrides_path.c_str(),
                 g_overrides.dump().c_str());
     } catch (const http::Error& e) {
-        fprintf(stderr, "gdec-api: ignoring %s: %s\n", g_cfg.overrides_path.c_str(),
+        fprintf(stderr, "qwenox: ignoring %s: %s\n", g_cfg.overrides_path.c_str(),
                 e.message.c_str());
     } catch (const std::exception& e) {
-        fprintf(stderr, "gdec-api: ignoring %s: %s\n", g_cfg.overrides_path.c_str(), e.what());
+        fprintf(stderr, "qwenox: ignoring %s: %s\n", g_cfg.overrides_path.c_str(), e.what());
     }
 }
 
@@ -1349,7 +1349,7 @@ void handle_overrides_post(const http::Request& q, http::Response* r, http::Stre
         g_overrides = table;
     }
     const bool saved = save_overrides(table, &err);
-    fprintf(stderr, "gdec-api: overrides set by %s: %s%s\n", q.remote.c_str(),
+    fprintf(stderr, "qwenox: overrides set by %s: %s%s\n", q.remote.c_str(),
             table.dump().c_str(), saved ? "" : (" (NOT persisted: " + err + ")").c_str());
     json j = overrides_state();
     j["saved"] = saved;
@@ -2806,12 +2806,12 @@ bool probe_engine(bool initial) {
     if (probe.connect(g_cfg.engine_addr, &err, 0.3) &&
         probe.info(&line, &err) && parse_engine_info(line, &capacity)) {
         apply_engine_info(capacity, true);
-        fprintf(stderr, "gdec-api: engine INFO%s: %s\n",
+        fprintf(stderr, "qwenox: engine INFO%s: %s\n",
                 initial ? "" : " (recovered)", line.c_str());
         return true;
     }
     if (initial)
-        fprintf(stderr, "gdec-api: engine INFO unavailable (%s); using ctx=%d, "
+        fprintf(stderr, "qwenox: engine INFO unavailable (%s); using ctx=%d, "
                         "one slot and retrying in background\n",
                 err.empty() ? "invalid INFO" : err.c_str(), g_cfg.context);
     return false;
@@ -2882,7 +2882,7 @@ int main(int argc, char** argv) {
     std::string rope_error;
     if (!rope_from_env(g_cfg.rope, rope_error) || !rope_config_valid(g_cfg.rope)) {
         if (rope_error.empty()) rope_error = "invalid YaRN configuration";
-        fprintf(stderr, "gdec-api: %s\n", rope_error.c_str());
+        fprintf(stderr, "qwenox: %s\n", rope_error.c_str());
         return 2;
     }
     // Environment, not argv: keeps the key out of `ps`.
@@ -2900,7 +2900,7 @@ int main(int argc, char** argv) {
 
     std::string err;
     if (!g_tok.load(g_cfg.tokenizer_dir, &err)) {
-        fprintf(stderr, "gdec-api: tokenizer: %s\n", err.c_str());
+        fprintf(stderr, "qwenox: tokenizer: %s\n", err.c_str());
         return 1;
     }
     g_tcache.load_file();
@@ -2913,10 +2913,10 @@ int main(int argc, char** argv) {
 
     http::Server srv;
     if (!srv.listen(g_cfg.listen, &err)) {
-        fprintf(stderr, "gdec-api: listen: %s\n", err.c_str());
+        fprintf(stderr, "qwenox: listen: %s\n", err.c_str());
         return 1;
     }
-    fprintf(stderr, "gdec-api: listening on :%d model=%s ctx=%d slots=%d\n", srv.port(),
+    fprintf(stderr, "qwenox: listening on :%d model=%s ctx=%d slots=%d\n", srv.port(),
             g_cfg.model.c_str(), engine_capacity().context, engine_capacity().slots);
 
     srv.on("GET", "/", handle_dashboard);
