@@ -12,6 +12,9 @@
 #   bash build_win.sh qwen27-test # Qwen27 HGN 格式单测（不加载模型）
 #   TOK_DIR=... bash build_win.sh snap-cuts-test # 检查点切分新旧等价测试
 #   TOK_DIR=... bash build_win.sh literal-test # 控制 token 原文/图像占位符编码回归
+#   GDEC_ENGINE_OUT=build/gdec-candidate.exe bash build_win.sh engine
+#   GDEC_API_OUT=build/gdec-api-candidate.exe bash build_win.sh api
+#                                # 独立候选产物，不覆盖默认 exe；输出目录须已存在
 #
 # 前置：TheRock 多架构包（默认 C:\therock-dist-windows-multiarch-10.0.0\...，
 # 可用 THEROCK=/path 覆盖）；GPU_ARCH 默认 gfx1151。
@@ -90,10 +93,11 @@ FLAGS=(-O3 -std=c++17 --offload-arch="$GPU_ARCH" -D_CRT_SECURE_NO_WARNINGS
        -I"$TR/include" -Lbuild/winlibs -lrocblas -lhipblaslt)
 
 build_engine() {
-    echo "[编译] build/gdec-win.exe"
+    local out="${GDEC_ENGINE_OUT:-build/gdec-win.exe}"
+    echo "[编译] $out"
     # 先编到临时文件再原子替换，编译失败保留上次成功的二进制（对齐 Linux build.sh）
-    "$HIPCC" "${FLAGS[@]}" src/gpu/gdec.cpp -o build/gdec-win.exe.tmp \
-      && mv -f build/gdec-win.exe.tmp build/gdec-win.exe
+    "$HIPCC" "${FLAGS[@]}" src/gpu/gdec.cpp -o "$out.tmp" \
+      && mv -f "$out.tmp" "$out"
 }
 
 build_bench() {
@@ -104,18 +108,19 @@ build_bench() {
 }
 
 build_api() {
+    local out="${GDEC_API_OUT:-build/gdec-api-win.exe}"
     # OpenAI HTTP 前端：纯主机 C++，用 TheRock 自带 clang++（不拖 HIP 依赖）。
     # PNG/JPEG 使用 stb_image，WebP 使用固定版本静态解码库；均无新增 DLL。
     CXX="$TR/lib/llvm/bin/clang++.exe"
     [[ -x "$CXX" ]] || { echo "找不到 TheRock clang++: $CXX" >&2; exit 1; }
     build_webp
-    echo "[编译] build/gdec-api-win.exe"
+    echo "[编译] $out"
     "$CXX" -O2 -std=c++17 -D_CRT_SECURE_NO_WARNINGS -Isrc/api -Ithird_party -I"$TR/include" "${WEBP_FLAGS[@]}" \
       src/api/http.cpp src/api/engine_client.cpp src/api/tokenizer.cpp \
       src/api/chat_template.cpp src/api/json_py.cpp src/api/toolparse.cpp \
       src/api/vision.cpp src/api/reqstat.cpp src/api/reqstat_read.cpp \
-      src/api/snap_cuts.cpp src/api/main.cpp -lws2_32 -o build/gdec-api-win.exe.tmp \
-      && mv -f build/gdec-api-win.exe.tmp build/gdec-api-win.exe
+      src/api/snap_cuts.cpp src/api/main.cpp -lws2_32 -o "$out.tmp" \
+      && mv -f "$out.tmp" "$out"
 }
 
 build_webp() {
