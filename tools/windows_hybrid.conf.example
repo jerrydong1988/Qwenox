@@ -2,6 +2,9 @@
 # Explicit GDEC_* switches require the updated native launcher.
 # Client max_tokens controls output; no forced output cap is installed here.
 MODEL_DIR="./models"
+GDEC_GR_COMBINE_SIG="1"
+GDEC_AXPY_SG_OUT="1"
+GDEC_LT_BUCKET="1"
 GDEC_SPEC_PRECISION="aligned"
 GDEC_SPEC_ADAPT="0"
 GDEC_SPEC_ADAPT_GREEDY="0"
