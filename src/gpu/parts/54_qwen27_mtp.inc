@@ -17,13 +17,14 @@ __global__ void mtp_inputs(const uint16_t* emb,const int* tokens,const float* st
 }
 struct Mtp {
   Allocations memory;
+  GreedyRows& greedy;
   Matrix embeddings,head,fc;
   Layer layer;
   float *embedding_norm,*hidden_norm,*finalnorm;
   float *joined,*x,*normed,*qkv,*q,*k,*v,*qgate,*attn,*tmp,*fg,*fu,*normalized,*logits,*partial_attention,*partial_ml;
   int *token_device;
   int capacity;
-  Mtp(const hgn::Checkpoint& ck,Matrix emb,Matrix lm,int maxctx):embeddings(emb),head(lm),capacity(maxctx){
+  Mtp(const hgn::Checkpoint& ck,Matrix emb,Matrix lm,int maxctx,GreedyRows& selector):greedy(selector),embeddings(emb),head(lm),capacity(maxctx){
     auto mat=[&](const std::string& name,int r,int c){const auto& t=required(ck,name,{uint64_t(r),uint64_t(c)});
       auto* p=memory.get<uint8_t>(t.data_size);check(hipMemcpy(p,t.data,t.data_size,hipMemcpyHostToDevice));
       return Matrix{p,t.dtype==5&&t.qparam==1?51:int(t.dtype),r,c,can_factor(t)};};
@@ -78,8 +79,6 @@ struct Mtp {
     mv(layer.gate,normed,fg);mv(layer.up,normed,fu);k_silu_mul<<<68,256>>>(fg,fu,fg,intermediate);
     mv(layer.down,fg,tmp);add_residual<<<20,256>>>(x,tmp,hidden);
     k_rmsnorm_zc<<<1,256>>>(x,finalnorm,normalized,hidden,1e-6f);mv(head,normalized,logits);
-    std::vector<float> values(vocab);check(hipMemcpy(values.data(),logits,vocab*4,hipMemcpyDeviceToHost));
-    for(float f:values)if(!std::isfinite(f))throw std::runtime_error("nonfinite MTP logits");
-    return int(std::max_element(values.begin(),values.end())-values.begin());
+    return greedy.select(logits, 1, "nonfinite MTP logits")[0];
   }
 };

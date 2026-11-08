@@ -1409,12 +1409,19 @@ __global__ void k_sigmoid_inplace(float* __restrict__ v, int n) {
   if (i < n) v[i] = 1.f / (1.f + expf(-v[i]));
 }
 // x_out[i] = mean_b G[b*d+i] * Rhat[b*d+i]
+// kSig: apply the k_sigmoid_inplace expression to each G element before the
+// product (same expression/order -> bit-identical to the separate launch).
+template <bool kSig = false>
 __global__ void k_gr_combine(const float* __restrict__ G, const float* __restrict__ Rhat,
                              float* __restrict__ x, int d, int branches) {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= d) return;
   float acc = 0.f;
-  for (int b = 0; b < branches; b++) acc += G[b * d + i] * Rhat[b * d + i];
+  for (int b = 0; b < branches; b++) {
+    float g = G[b * d + i];
+    if (kSig) g = 1.f / (1.f + expf(-g));
+    acc += g * Rhat[b * d + i];
+  }
   x[i] = acc / branches;
 }
 // GR write: s = 2*sigmoid(w/4); R[b*d+i] += s[b] * y[i]

@@ -1,0 +1,165 @@
+{
+  "base_commit": "386d695b3b384a56a91603d97a7b3ffe19356933",
+  "device": "Windows / gfx1151 / TheRock 10.0.0",
+  "engine_sha256": {
+    "baseline": "2243cbbfb448a0bfdc34620127c6aff2b49b453d59e0cb1d3e2a4c93b61b9138",
+    "timed_candidate": "6eed8dd08fc391f552bb520410191bc8e005ee64c29c2df0da2bf0b41bbc4991",
+    "final_validation_build": "aca84dde82bc9993c0b4b5cf4e7ad2ed797d6ecf4aa88be0ce9a8c74dbfdc502"
+  },
+  "milliseconds": "Sum of engine decode time across three 72-token prompts, or client TTFT across twelve cached-prefix increments. Compare base-0 to first run, off-1 to second run.",
+  "rows": [
+    {
+      "run": "flash-all-0",
+      "requests": 22,
+      "serial_ms": 6263.9,
+      "mtp_ms": 4216.4,
+      "follow_ttft_ms": 5810.0083998870105,
+      "token_and_draft_fingerprint": "9e4749b01606d3ebff735a712c14c10f166fd4e3afac458e0b5048339f4af604",
+      "mismatches": []
+    },
+    {
+      "run": "flash-all-1",
+      "requests": 22,
+      "serial_ms": 6053.6,
+      "mtp_ms": 4117.3,
+      "follow_ttft_ms": 5615.980799891986,
+      "token_and_draft_fingerprint": "9e4749b01606d3ebff735a712c14c10f166fd4e3afac458e0b5048339f4af604",
+      "mismatches": []
+    },
+    {
+      "run": "flash-base-0",
+      "requests": 22,
+      "serial_ms": 6185.6,
+      "mtp_ms": 4157.0,
+      "follow_ttft_ms": 5715.485399821773,
+      "token_and_draft_fingerprint": "9e4749b01606d3ebff735a712c14c10f166fd4e3afac458e0b5048339f4af604",
+      "mismatches": []
+    },
+    {
+      "run": "flash-both-0",
+      "requests": 22,
+      "serial_ms": 6136.9,
+      "mtp_ms": 4119.8,
+      "follow_ttft_ms": 6137.159700039774,
+      "token_and_draft_fingerprint": "9e4749b01606d3ebff735a712c14c10f166fd4e3afac458e0b5048339f4af604",
+      "mismatches": []
+    },
+    {
+      "run": "flash-both-1",
+      "requests": 22,
+      "serial_ms": 6077.9,
+      "mtp_ms": 4108.0,
+      "follow_ttft_ms": 5737.819499685429,
+      "token_and_draft_fingerprint": "9e4749b01606d3ebff735a712c14c10f166fd4e3afac458e0b5048339f4af604",
+      "mismatches": []
+    },
+    {
+      "run": "flash-d1-0",
+      "requests": 22,
+      "serial_ms": 6154.200000000001,
+      "mtp_ms": 4173.5,
+      "follow_ttft_ms": 5711.10889990814,
+      "token_and_draft_fingerprint": "9e4749b01606d3ebff735a712c14c10f166fd4e3afac458e0b5048339f4af604",
+      "mismatches": []
+    },
+    {
+      "run": "flash-d1-1",
+      "requests": 22,
+      "serial_ms": 6090.3,
+      "mtp_ms": 4123.1,
+      "follow_ttft_ms": 5706.400899798609,
+      "token_and_draft_fingerprint": "9e4749b01606d3ebff735a712c14c10f166fd4e3afac458e0b5048339f4af604",
+      "mismatches": []
+    },
+    {
+      "run": "flash-d2-0",
+      "requests": 22,
+      "serial_ms": 6120.8,
+      "mtp_ms": 4091.4,
+      "follow_ttft_ms": 5712.744000018574,
+      "token_and_draft_fingerprint": "9e4749b01606d3ebff735a712c14c10f166fd4e3afac458e0b5048339f4af604",
+      "mismatches": []
+    },
+    {
+      "run": "flash-d2-1",
+      "requests": 22,
+      "serial_ms": 6125.4,
+      "mtp_ms": 4120.4,
+      "follow_ttft_ms": 5719.939399859868,
+      "token_and_draft_fingerprint": "9e4749b01606d3ebff735a712c14c10f166fd4e3afac458e0b5048339f4af604",
+      "mismatches": []
+    },
+    {
+      "run": "flash-lt-0",
+      "requests": 22,
+      "serial_ms": 6166.0,
+      "mtp_ms": 4195.4,
+      "follow_ttft_ms": 5631.9120997795835,
+      "token_and_draft_fingerprint": "9e4749b01606d3ebff735a712c14c10f166fd4e3afac458e0b5048339f4af604",
+      "mismatches": []
+    },
+    {
+      "run": "flash-lt-1",
+      "requests": 22,
+      "serial_ms": 6118.3,
+      "mtp_ms": 4098.3,
+      "follow_ttft_ms": 5577.110199956223,
+      "token_and_draft_fingerprint": "9e4749b01606d3ebff735a712c14c10f166fd4e3afac458e0b5048339f4af604",
+      "mismatches": []
+    },
+    {
+      "run": "flash-off-1",
+      "requests": 22,
+      "serial_ms": 6132.2,
+      "mtp_ms": 4091.8,
+      "follow_ttft_ms": 5713.082400150597,
+      "token_and_draft_fingerprint": "9e4749b01606d3ebff735a712c14c10f166fd4e3afac458e0b5048339f4af604",
+      "mismatches": []
+    },
+    {
+      "run": "q27-base-0",
+      "requests": 8,
+      "serial_ms": 22178.39,
+      "mtp_ms": 10221.8,
+      "follow_ttft_ms": 0,
+      "token_and_draft_fingerprint": "fa49aa9ab667ac213e5a84d64754830d8113aeb35968ccf7ce6288e90f289d22",
+      "mismatches": []
+    },
+    {
+      "run": "q27-off-1",
+      "requests": 8,
+      "serial_ms": 22077.559999999998,
+      "mtp_ms": 10269.939999999999,
+      "follow_ttft_ms": 0,
+      "token_and_draft_fingerprint": "fa49aa9ab667ac213e5a84d64754830d8113aeb35968ccf7ce6288e90f289d22",
+      "mismatches": []
+    },
+    {
+      "run": "q27-on-0",
+      "requests": 8,
+      "serial_ms": 21983.74,
+      "mtp_ms": 10012.689999999999,
+      "follow_ttft_ms": 0,
+      "token_and_draft_fingerprint": "fa49aa9ab667ac213e5a84d64754830d8113aeb35968ccf7ce6288e90f289d22",
+      "mismatches": []
+    },
+    {
+      "run": "q27-on-1",
+      "requests": 8,
+      "serial_ms": 22036.989999999998,
+      "mtp_ms": 10048.51,
+      "follow_ttft_ms": 0,
+      "token_and_draft_fingerprint": "fa49aa9ab667ac213e5a84d64754830d8113aeb35968ccf7ce6288e90f289d22",
+      "mismatches": []
+    }
+  ],
+  "final_checks": {
+    "dflash_gamma_7": "matches_baseline",
+    "qwen27_mtp_gamma_3": "matches_baseline",
+    "flash_different_outputs": [],
+    "flash_max_wire_logprob_delta": 0.0,
+    "flash_logprobs_compared": 44,
+    "exact_shape_reuses": 162,
+    "unsupported_in_trace": 0
+  }
+}

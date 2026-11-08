@@ -24,6 +24,7 @@ serve_init() {
   esac
   source "$ROOT/service.conf"
   export QWENOX_PLE_IO_TIMEOUT_MS QWENOX_SEND_TIMEOUT
+  export GDEC_GR_COMBINE_SIG GDEC_AXPY_SG_OUT GDEC_LT_BUCKET GDEC_QWEN27_GPU_GREEDY
   ENGINE_HOST="${ENGINE_HOST:-127.0.0.1}"
   # 旧版 service.conf 没有这几项时的缺省值（与 service.conf 相同）
   KV_PAGED="${KV_PAGED:-1}"

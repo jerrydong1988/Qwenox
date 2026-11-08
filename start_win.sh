@@ -20,6 +20,7 @@ if [[ -f service.conf ]]; then
   _env_start_timeout="${START_TIMEOUT-}"
   source service.conf
   export QWENOX_PLE_IO_TIMEOUT_MS QWENOX_SEND_TIMEOUT
+  export GDEC_GR_COMBINE_SIG GDEC_AXPY_SG_OUT GDEC_LT_BUCKET GDEC_QWEN27_GPU_GREEDY
   START_TIMEOUT="${_env_start_timeout:-1800}"
 fi
 fail() { echo "错误：$*" >&2; exit 1; }

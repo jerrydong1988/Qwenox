@@ -315,6 +315,10 @@ struct GpuModel {
   bool index_score_paged = getenv("GDEC_INDEX_SCORE_PAGED") &&
                            !strcmp(getenv("GDEC_INDEX_SCORE_PAGED"), "1");
   bool index_sel2p = !env_zero("GDEC_INDEX_SEL2P");
+  static bool env_one(const char* key) {
+    const char* value = getenv(key);
+    return value && !strcmp(value, "1");
+  }
   static bool env_zero(const char* k) {
     const char* v = getenv(k);
     return v && v[0] == '0' && v[1] == 0;
@@ -479,11 +483,17 @@ struct GpuModel {
   // create/destroy per call (~55 ms per 8-token chunk of pure host time).
   struct LtEntry {
     hipblasLtMatmulAlgo_t algo;
+    bool from_bucket = false;
     hipblasLtMatmulDesc_t opd = nullptr;
     hipblasLtMatrixLayout_t Al = nullptr, Bl = nullptr, Cl = nullptr,
                           Dl = nullptr;
   };
   std::unordered_map<uint64_t, LtEntry> lt_algos;
+  struct LtBucket {
+    hipblasLtMatmulAlgo_t algo{};
+    bool found = false;
+  };
+  std::unordered_map<uint64_t, LtBucket> lt_buckets;
 #include "41_mtp_branch_strided.inc"
   int* d_posarr;   // [maxctx] d_posarr[i] = i
   int* d_ringarr;  // [maxctx] d_ringarr[i] = i % 9
@@ -1285,11 +1295,31 @@ struct GpuModel {
     }
     if (rbh) rocblas_destroy_handle(rbh);
     mtp_branch_lt_.clear(); // destroy private descriptors before Lt handle
+    for (auto& item : lt_algos) {
+      auto& e = item.second;
+      if (e.opd) hipblasLtMatmulDescDestroy(e.opd);
+      if (e.Al) hipblasLtMatrixLayoutDestroy(e.Al);
+      if (e.Bl) hipblasLtMatrixLayoutDestroy(e.Bl);
+      if (e.Cl) hipblasLtMatrixLayoutDestroy(e.Cl);
+      if (e.Dl) hipblasLtMatrixLayoutDestroy(e.Dl);
+    }
     if (lth) hipblasLtDestroy(lth);
 #ifndef _WIN32
     // Windows 下 d_Rhatbf16 来自 devarena bump 分配，不能单独 hipFree
     if (d_Rhatbf16) CK(hipFree(d_Rhatbf16));
 #endif
+  }
+
+  void combine_decode_gate(const float* normalized, float* output) {
+    static const bool fused = env_one("GDEC_GR_COMBINE_SIG");
+    if (fused) {
+      k_gr_combine<true><<<(g_cfg.d + 255) / 256, 256, 0, g_str>>>(
+          d_G, normalized, output, g_cfg.d, g_cfg.branches);
+    } else {
+      k_sigmoid_inplace<<<(10240 + 255) / 256, 256, 0, g_str>>>(d_G, 10240);
+      k_gr_combine<false><<<(g_cfg.d + 255) / 256, 256, 0, g_str>>>(
+          d_G, normalized, output, g_cfg.d, g_cfg.branches);
+    }
   }
 
   // GR read: R -> Rhat -> t320 -> G -> x. prefix like
@@ -1306,9 +1336,7 @@ struct GpuModel {
     k_silu_scale<<<(320 + 255) / 256, 256, 0, g_str>>>(d_t320, 0.25f, 320);
     snprintf(buf, sizeof buf, "%s.input_mix_weight_up.weight", prefix.c_str());
     gemv(wview(ckpt.at(buf)), d_t320, d_G);
-    k_sigmoid_inplace<<<(10240 + 255) / 256, 256, 0, g_str>>>(d_G, 10240);
-    k_gr_combine<<<(2560 + 255) / 256, 256, 0, g_str>>>(d_G, d_Rhat, x_out, g_cfg.d,
-                                              g_cfg.branches);
+    combine_decode_gate(d_Rhat, x_out);
   }
 
   void gr_write(const std::string& prefix, const float* y) {
@@ -2025,6 +2053,18 @@ struct GpuModel {
     return true;
   }
 
+  void write_shared_expert_sum(float* output) {
+    static const bool direct = env_one("GDEC_AXPY_SG_OUT");
+    if (direct) {
+      k_axpy_sg_out<<<(g_cfg.d + 255) / 256, 256, 0, g_str>>>(
+          d_moeacc, d_ey, d_sg, output, g_cfg.d, g_cfg.d);
+    } else {
+      k_axpy_sg<<<(g_cfg.d + 255) / 256, 256, 0, g_str>>>(
+          d_moeacc, d_ey, d_sg, g_cfg.d, g_cfg.d);
+      CK(hipMemcpyAsync(output, d_moeacc, g_cfg.d * sizeof(float), hipMemcpyDeviceToDevice, g_str));
+    }
+  }
+
   void moe(int l, const float* x, float* y) {
     char buf[128];
     snprintf(buf, sizeof buf, "layers.%d.mlp.gate.weight", l);
@@ -2078,9 +2118,7 @@ struct GpuModel {
     gemv(wview(ckpt.at(buf)), d_hid, d_ey);
     snprintf(buf, sizeof buf, "layers.%d.mlp.shared_expert_gate.weight", l);
     gemv(wview(ckpt.at(buf)), x, d_sg);
-    k_axpy_sg<<<(2560 + 255) / 256, 256, 0, g_str>>>(d_moeacc, d_ey, d_sg, g_cfg.d,
-                                                     g_cfg.d);
-    CK(hipMemcpyAsync(y, d_moeacc, g_cfg.d * 4, hipMemcpyDeviceToDevice, g_str));
+    write_shared_expert_sum(y);
   }
 
   // Exact values only: 1 retains R12b BN32; 2 selects R12c BN64.
@@ -2704,6 +2742,107 @@ struct GpuModel {
     return wp;
   }
 
+  // Only cache the algorithm. Matmul always runs with descriptors for the actual P.
+  // The rounded layouts exist solely for choosing a repeatable candidate.
+  bool select_bucket_algo(LtEntry& e, uint64_t N, uint64_t K, int P) {
+    const int rounded = (P + 63) / 64 * 64;
+    const uint64_t key = (N << 40) ^ (K << 20) ^ uint64_t(rounded);
+    auto [it, fresh] = lt_buckets.try_emplace(key);
+    LtBucket& bucket = it->second;
+    if (fresh) {
+      hipblasLtMatrixLayout_t b = nullptr, c = nullptr;
+      hipblasLtMatmulPreference_t pref = nullptr;
+      hipblasLtMatmulHeuristicResult_t choices[8]{};
+      int count = 0;
+      if (hipblasLtMatrixLayoutCreate(&b, HIP_R_16BF, K, rounded, K) == HIPBLAS_STATUS_SUCCESS &&
+          hipblasLtMatrixLayoutCreate(&c, HIP_R_32F, N, rounded, N) == HIPBLAS_STATUS_SUCCESS &&
+          hipblasLtMatmulPreferenceCreate(&pref) == HIPBLAS_STATUS_SUCCESS &&
+          hipblasLtMatmulPreferenceSetAttribute(pref, HIPBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
+                                                &lt_ws_bytes, sizeof(lt_ws_bytes)) == HIPBLAS_STATUS_SUCCESS &&
+          hipblasLtMatmulAlgoGetHeuristic(lth, e.opd, e.Al, b, c, c, pref, 8, choices, &count)
+              == HIPBLAS_STATUS_SUCCESS && count > 4 &&
+          choices[4].state == HIPBLAS_STATUS_SUCCESS && choices[4].workspaceSize <= lt_ws_bytes) {
+        bucket.algo = choices[4].algo;
+        bucket.found = true;
+      }
+      if (pref) hipblasLtMatmulPreferenceDestroy(pref);
+      if (c) hipblasLtMatrixLayoutDestroy(c);
+      if (b) hipblasLtMatrixLayoutDestroy(b);
+    }
+    if (!bucket.found) return false;
+    const float one = 1.f, zero = 0.f;
+    size_t workspace = 0;
+    e.algo = bucket.algo;
+    const int index = hipblaslt_ext::getIndexFromAlgo(e.algo);
+    const bool supported = index >= 0 &&
+        hipblaslt_ext::matmulIsAlgoSupported(lth, e.opd, &one, e.Al, e.Bl, &zero, e.Cl, e.Dl,
+                                             e.algo, workspace) == HIPBLAS_STATUS_SUCCESS &&
+        workspace <= lt_ws_bytes && hipblaslt_ext::getIndexFromAlgo(e.algo) == index;
+    if (getenv("GDEC_LT_CHOICES"))
+      fprintf(stderr, "[lt-bucket] N=%llu K=%llu P=%d bucket=%d reused=%d supported=%d\n",
+              (unsigned long long)N, (unsigned long long)K, P, rounded, !fresh, supported);
+    return supported;
+  }
+
+  void select_dense_exact(LtEntry& e, const uint16_t* wp, const uint16_t* xp,
+                          float* y, uint64_t N, uint64_t K, int P) {
+    float one = 1.f, zero = 0.f;
+    hipblasLtMatmulPreference_t pref;
+    hipblasLtMatmulPreferenceCreate(&pref);
+    hipblasLtMatmulPreferenceSetAttribute(
+        pref, HIPBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &lt_ws_bytes,
+        sizeof(lt_ws_bytes));
+    hipblasLtMatmulHeuristicResult_t hres[8];
+    int nres = 0;
+    hipblasLtMatmulAlgoGetHeuristic(lth, e.opd, e.Al, e.Bl, e.Cl, e.Dl, pref,
+                                    8, hres, &nres);
+    auto try_run = [&](int i) {
+      if (hipblasLtMatmul(lth, e.opd, &one, wp, e.Al, xp, e.Bl, &zero, y, e.Cl, y,
+                         e.Dl, &hres[i].algo, d_ltws, lt_ws_bytes, g_str) != HIPBLAS_STATUS_SUCCESS)
+        return false;
+      if (hipStreamSynchronize(g_str) != hipSuccess) {
+        (void)hipGetLastError();
+        return false;
+      }
+      return true;
+    };
+    int bi = -1;
+    if (nres > 4 && hres[4].state == HIPBLAS_STATUS_SUCCESS &&
+        hres[4].workspaceSize <= lt_ws_bytes && try_run(4))
+      bi = 4;
+    else {  // fallback: time all candidates
+      double best = 1e30;
+      for (int i = 0; i < nres; i++) {
+        if (hres[i].state != HIPBLAS_STATUS_SUCCESS) continue;
+        if (hres[i].workspaceSize > lt_ws_bytes) continue;
+        if (!try_run(i)) continue;
+        auto t0 = std::chrono::steady_clock::now();
+        bool completed = true;
+        for (int r = 0; r < 3 && completed; ++r) completed = try_run(i);
+        if (!completed) continue;
+        double ms = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - t0)
+                        .count();
+        if (ms < best) {
+          best = ms;
+          bi = i;
+        }
+      }
+    }
+    if (bi < 0) {
+      fprintf(stderr, "hipBLASLt: no algo for N=%llu K=%llu P=%d\n",
+              (unsigned long long)N, (unsigned long long)K, P);
+      exit(1);
+    }
+    e.algo = hres[bi].algo;
+    if (getenv("GDEC_LT_CHOICES")) {
+      fprintf(stderr,"[lt-choice] N=%llu K=%llu P=%d heuristic=%d algo=",(unsigned long long)N,(unsigned long long)K,P,bi);
+      for(unsigned char b:e.algo.data)fprintf(stderr,"%02x",b);
+      fprintf(stderr,"\n");
+    }
+    hipblasLtMatmulPreferenceDestroy(pref);
+  }
+
   void gemm(const WView& w, const float* x, float* y, int P, uint64_t xstride = 0,
             const uint16_t* xbf = nullptr) {
     auto pt0 = std::chrono::steady_clock::now();
@@ -2872,7 +3011,12 @@ struct GpuModel {
     // tensile kernel for every projection shape measured (5-6x over index 0),
     // so use it after a validation run; fall back to a timing scan if the
     // list is short or index 4 fails. Full descriptor set cached per (N,K,P).
-    uint64_t key = (N << 40) ^ (K << 20) ^ (uint64_t)P;
+    static const bool use_buckets = env_one("GDEC_LT_BUCKET");
+    const bool bucket = use_buckets && prog_total > 0 && P <= 1024 &&
+        !spec_fp32_active && !spec_snap && !ngram_verify_active &&
+        !(mtp_branch_strided_enabled() && N == 2560 && K == 2560);
+    // Speculative verify and the tuned strided MTP path keep their exact-P entries.
+    uint64_t key = (N << 40) ^ (K << 20) ^ (uint64_t)P ^ (uint64_t(bucket) << 61);
     auto it = lt_algos.find(key);
     if (it == lt_algos.end()) {
       LtEntry e;
@@ -2886,63 +3030,20 @@ struct GpuModel {
       hipblasLtMatrixLayoutCreate(&e.Bl, HIP_R_16BF, K, P, K);
       hipblasLtMatrixLayoutCreate(&e.Cl, HIP_R_32F, N, P, N);
       hipblasLtMatrixLayoutCreate(&e.Dl, HIP_R_32F, N, P, N);
-      hipblasLtMatmulPreference_t pref;
-      hipblasLtMatmulPreferenceCreate(&pref);
-      hipblasLtMatmulPreferenceSetAttribute(
-          pref, HIPBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &lt_ws_bytes,
-          sizeof(lt_ws_bytes));
-      hipblasLtMatmulHeuristicResult_t hres[8];
-      int nres = 0;
-      hipblasLtMatmulAlgoGetHeuristic(lth, e.opd, e.Al, e.Bl, e.Cl, e.Dl, pref,
-                                      8, hres, &nres);
-      auto try_run = [&](int i) {
-        hipblasLtMatmul(lth, e.opd, &one, wp, e.Al, xp, e.Bl, &zero, y, e.Cl, y,
-                        e.Dl, &hres[i].algo, d_ltws, lt_ws_bytes, g_str);
-        if (hipStreamSynchronize(g_str) != hipSuccess) {
-          (void)hipGetLastError();
-          return false;
-        }
-        return true;
-      };
-      int bi = -1;
-      if (nres > 4 && hres[4].state == HIPBLAS_STATUS_SUCCESS &&
-          hres[4].workspaceSize <= lt_ws_bytes && try_run(4))
-        bi = 4;
-      else {  // fallback: time all candidates
-        double best = 1e30;
-        for (int i = 0; i < nres; i++) {
-          if (hres[i].state != HIPBLAS_STATUS_SUCCESS) continue;
-          if (hres[i].workspaceSize > lt_ws_bytes) continue;
-          if (!try_run(i)) continue;
-          auto t0 = std::chrono::steady_clock::now();
-          for (int r = 0; r < 3; r++) try_run(i);
-          double ms = std::chrono::duration<double, std::milli>(
-                          std::chrono::steady_clock::now() - t0)
-                          .count();
-          if (ms < best) {
-            best = ms;
-            bi = i;
-          }
-        }
-      }
-      if (bi < 0) {
-        fprintf(stderr, "hipBLASLt: no algo for N=%llu K=%llu P=%d\n",
-                (unsigned long long)N, (unsigned long long)K, P);
-        exit(1);
-      }
-      e.algo = hres[bi].algo;
-      if (getenv("GDEC_LT_CHOICES")) {
-        fprintf(stderr,"[lt-choice] N=%llu K=%llu P=%d heuristic=%d algo=",(unsigned long long)N,(unsigned long long)K,P,bi);
-        for(unsigned char b:e.algo.data)fprintf(stderr,"%02x",b);
-        fprintf(stderr,"\n");
-      }
-      hipblasLtMatmulPreferenceDestroy(pref);
+      e.from_bucket = bucket && select_bucket_algo(e, N, K, P);
+      if (!e.from_bucket) select_dense_exact(e, wp, xp, y, N, K, P);
       it = lt_algos.emplace(key, e).first;
     }
-    const LtEntry& e = it->second;
+    LtEntry& e = it->second;
     hipblasStatus_t lst =
         hipblasLtMatmul(lth, e.opd, &one, wp, e.Al, xp, e.Bl, &zero, y, e.Cl, y,
                         e.Dl, &e.algo, d_ltws, lt_ws_bytes, g_str);
+    if (lst != HIPBLAS_STATUS_SUCCESS && e.from_bucket) {
+      e.from_bucket = false;
+      select_dense_exact(e, wp, xp, y, N, K, P);
+      lst = hipblasLtMatmul(lth, e.opd, &one, wp, e.Al, xp, e.Bl, &zero, y, e.Cl, y,
+                           e.Dl, &e.algo, d_ltws, lt_ws_bytes, g_str);
+    }
     if (lst != HIPBLAS_STATUS_SUCCESS) {
       fprintf(stderr, "hipblasLtMatmul failed: %d (N=%llu K=%llu P=%d)\n", (int)lst,
               (unsigned long long)N, (unsigned long long)K, P);
@@ -6371,9 +6472,7 @@ struct GpuModel {
     k_silu_scale<<<(320 + 255) / 256, 256, 0, g_str>>>(d_t320, 0.25f, 320);
     snprintf(buf, sizeof buf, "%s.input_mix_weight_up.weight", prefix.c_str());
     gemv(wview(ckpt.at(buf)), d_t320, d_G);
-    k_sigmoid_inplace<<<(10240 + 255) / 256, 256, 0, g_str>>>(d_G, 10240);
-    k_gr_combine<<<(2560 + 255) / 256, 256, 0, g_str>>>(d_G, d_mRhat, x_out,
-                                                        g_cfg.d, g_cfg.branches);
+    combine_decode_gate(d_mRhat, x_out);
   }
   void mtp_gr_write(const std::string& prefix, const float* y) {
     char buf[128];
@@ -6498,9 +6597,7 @@ struct GpuModel {
     gemv(wview(ckpt.at(buf)), d_hid, d_ey);
     snprintf(buf, sizeof buf, "%s.shared_expert_gate.weight", pfx);
     gemv(wview(ckpt.at(buf)), x, d_sg);
-    k_axpy_sg<<<(2560 + 255) / 256, 256, 0, g_str>>>(d_moeacc, d_ey, d_sg,
-                                                     g_cfg.d, g_cfg.d);
-    CK(hipMemcpyAsync(y, d_moeacc, g_cfg.d * 4, hipMemcpyDeviceToDevice, g_str));
+    write_shared_expert_sum(y);
   }
 
   // Opt-in single-slot diagnostic. Synchronizes and reads only; never use its
@@ -9799,5 +9896,17 @@ __global__ void k_axpy_sg(float* __restrict__ acc, const float* __restrict__ y,
   if (i < total) {
     float s = 1.f / (1.f + expf(-sg[i / n]));
     acc[i] += s * y[i];
+  }
+}
+
+__global__ void k_axpy_sg_out(const float* __restrict__ acc, const float* __restrict__ y,
+                              const float* __restrict__ sg, float* __restrict__ out,
+                              int n, int total) {
+  int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < total) {
+    float s = 1.f / (1.f + expf(-sg[i / n]));
+    float v = acc[i];
+    v += s * y[i];
+    out[i] = v;
   }
 }

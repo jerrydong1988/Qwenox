@@ -154,10 +154,46 @@ struct Layer {
   float *qnorm=nullptr,*knorm=nullptr,*state=nullptr,*history=nullptr,*keys=nullptr,*values=nullptr;
   Matrix qkv,z,a,b,out,q,k,v,up,gate,down;
 };
+// Target verification has at most eight rows (one target + seven drafts).
+struct GreedyRows {
+  using Tokens = std::array<int, 8>;
+  unsigned long long* candidates = nullptr;
+  int* ids = nullptr;
+
+  explicit GreedyRows(Allocations& memory) {
+    const char* mode = getenv("GDEC_QWEN27_GPU_GREEDY");
+    if (mode && !strcmp(mode, "0")) return;
+    candidates = memory.get<unsigned long long>(8 * ARGMAX_B1);
+    ids = memory.get<int>(8);
+  }
+
+  Tokens select(const float* scores, int rows, const char* invalid) const {
+    Tokens result{};
+    if (rows < 1 || rows > (int)result.size())
+      throw std::runtime_error("invalid Qwen27 greedy row count");
+    if (ids) {
+      argmax_fast_rows<true>(scores, vocab, rows, candidates, ids, nullptr);
+      check(hipGetLastError());
+      check(hipMemcpy(result.data(), ids, rows * sizeof(int), hipMemcpyDeviceToHost));
+      if (std::find(result.begin(), result.begin() + rows, -1) != result.begin() + rows)
+        throw std::runtime_error(invalid);
+    } else {
+      std::vector<float> host(size_t(rows) * vocab);
+      check(hipMemcpy(host.data(), scores, host.size() * sizeof(float), hipMemcpyDeviceToHost));
+      for (float x : host) if (!std::isfinite(x)) throw std::runtime_error(invalid);
+      for (int row = 0; row < rows; ++row) {
+        const float* begin = host.data() + size_t(row) * vocab;
+        result[row] = int(std::max_element(begin, begin + vocab) - begin);
+      }
+    }
+    return result;
+  }
+};
 #include "54_qwen27_mtp.inc"
 #include "55_qwen27_dflash.inc"
 class Model {
   Allocations memory;
+  GreedyRows greedy{memory};
   hgn::Checkpoint ck;
   Matrix embeddings,head;
   Layer layer[64];
@@ -253,7 +289,7 @@ public:
     btokens=memory.get<int>(batch_size);unpacked=memory.get<float>(size_t(hidden)*intermediate);
     device_input=memory.get<int>(2);batch_positions=memory.get<int>(batch_size);partial_attention=memory.get<float>(24*32*256);partial_ml=memory.get<float>(24*32*2);
     mtp_enabled=enable_mtp;dflash_enabled=enable_dflash;
-    if(enable_mtp)mtp=std::make_unique<Mtp>(ck,embeddings,head,capacity);
+    if(enable_mtp)mtp=std::make_unique<Mtp>(ck,embeddings,head,capacity,greedy);
     if(enable_dflash)dflash=std::make_unique<Dflash>(ck,embeddings,head,capacity,df_full_vocab);
     if(enable_mtp||enable_dflash){
       last_hidden=memory.get<float>(hidden);previous_hidden=memory.get<float>(hidden);
@@ -468,6 +504,10 @@ public:
     score_at(pos);
     history.push_back(token);
   }
+  int greedy_token() const { return greedy.select(logits, 1, "nonfinite Qwen27 logits")[0]; }
+  GreedyRows::Tokens greedy_verification() const {
+    return greedy.select(verify_logits, verified_count, "nonfinite verification logits");
+  }
   std::vector<float> read_logits(){
     std::vector<float> host(vocab);check(hipMemcpy(host.data(),logits,host.size()*4,hipMemcpyDeviceToHost));
     for(float f:host)if(!std::isfinite(f))throw std::runtime_error("nonfinite Qwen27 logits");
@@ -553,19 +593,29 @@ static void generate(Model& m,serve::Conn& c,serve::GenReq g) {
     };
     const bool speculative=(m.mtp_enabled||m.dflash_enabled)&&g.drafter!=0;
     while(generated<g.max_tokens&&!c.cancel){
-      auto scores=m.read_logits();float lp=0;
-      int token=g.sample?sampler.sample(scores,&lp):int(std::max_element(scores.begin(),scores.end())-scores.begin());
+      float lp=0;
+      int token;
+      if (g.sample) {
+        auto scores=m.read_logits();
+        token=sampler.sample(scores,&lp);
+      } else {
+        token=m.greedy_token();
+      }
       if(std::find(g.eos.begin(),g.eos.end(),token)!=g.eos.end()){reason="done";break;}
       if(!emit(token,lp)||generated==g.max_tokens)break;
       if(speculative&&g.max_tokens-generated>1&&m.history.size()+2<=size_t(m.maxctx)){
         int gamma=std::min({m.dflash_enabled?m.dflash_gamma:m.mtp_gamma,g.max_tokens-generated-1,int(m.maxctx-m.history.size())-1});
         auto proposals=m.draft_sequence(token,gamma);std::vector<int> batch{token};batch.insert(batch.end(),proposals.begin(),proposals.end());
-        m.prefill(batch.data(),int(batch.size()),nullptr,true);auto verify=m.verification_scores();
+        m.prefill(batch.data(),int(batch.size()),nullptr,true);
+        std::vector<float> verify;
+        GreedyRows::Tokens choices{};
+        if (g.sample) verify=m.verification_scores();
+        else choices=m.greedy_verification();
         int keep=1;bool stop=false;std::vector<float> proposal_lp(gamma,0);
         for(int j=0;j<gamma;++j){
-          auto begin=verify.begin()+size_t(j)*vocab;
           int expected;
           if(g.sample){
+            auto begin=verify.begin()+size_t(j)*vocab;
             // Draw only from the target distribution. A rejected draft restores
             // RNG and emission counts so the next serial step repeats this draw.
             // Accepted drafts consume exactly one ordinary target sample each.
@@ -573,7 +623,7 @@ static void generate(Model& m,serve::Conn& c,serve::GenReq g) {
             std::vector<float> target(begin,begin+vocab);
             expected=sampler.sample(target,&proposal_lp[j]);
             if(proposals[j]!=expected){sampler.rng=rng;sampler.hist=std::move(hist);break;}
-          }else expected=int(std::max_element(begin,begin+vocab)-begin);
+          }else expected=choices[j];
           if(proposals[j]!=expected)break;
           if(std::find(g.eos.begin(),g.eos.end(),expected)!=g.eos.end()){stop=true;break;}
           ++keep;
@@ -724,7 +774,7 @@ static int main(int argc,char** argv){
     if(df_probe>=0){auto ids=model.draft_sequence(df_probe,df_gamma);printf("dflash proposals");for(int id:ids)printf(" %d",id);printf("\n");}
     if(mtp_probe>=0){if(mtp_probe>=vocab)throw std::runtime_error("invalid MTP probe token");printf("mtp proposal %d\n",model.draft(mtp_probe));}
     start=std::chrono::steady_clock::now();
-    for(int i=0;i<gen;++i){auto values=model.read_logits();int id=int(std::max_element(values.begin(),values.end())-values.begin());
+    for(int i=0;i<gen;++i){int id=model.greedy_token();
       printf("%s%d",i?",":"",id);fflush(stdout);if(i+1<gen)model.forward(id);}
     printf("\n");fprintf(stderr,"qwen27: prefill %zu tokens %.3f ms; decode %d tokens %.3f ms\n",tokens.size(),prefill,gen,milliseconds(start));
     return 0;

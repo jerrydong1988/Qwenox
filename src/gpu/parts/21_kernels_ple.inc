@@ -153,6 +153,7 @@ __device__ __forceinline__ unsigned long long amx_pack(float v, int id) {
   return ((unsigned long long)u << 32) | (unsigned)(0xFFFFFFFFu - (unsigned)id);
 }
 
+template <bool CheckFinite = false>
 __global__ void k_argmax_p1(const float* __restrict__ x, int n,
                             unsigned long long* __restrict__ cand) {
   const int chunk = (n + gridDim.x - 1) / gridDim.x;
@@ -160,7 +161,17 @@ __global__ void k_argmax_p1(const float* __restrict__ x, int n,
   const float* xr = x + (size_t)blockIdx.y * n;
   unsigned long long best = 0;  // packs below any finite/inf value
   for (int i = lo + threadIdx.x; i < hi; i += blockDim.x) {
-    unsigned long long k = amx_pack(xr[i], i);
+    float value = xr[i];
+    unsigned long long k;
+    if constexpr (CheckFinite) {
+      // A nonfinite anywhere wins the reduction and decodes to id -1.
+      // std::max_element considers -0 and +0 equal (first id wins).
+      const unsigned magnitude = __float_as_uint(value) & 0x7fffffffu;
+      k = magnitude >= 0x7f800000u ? 0xffffffff00000000ull
+                                   : amx_pack(magnitude ? value : 0.0f, i);
+    } else {
+      k = amx_pack(value, i);
+    }
     if (k > best) best = k;
   }
   for (int off = warpSize / 2; off > 0; off >>= 1) {
@@ -197,10 +208,11 @@ __global__ void k_argmax_p2(const unsigned long long* __restrict__ cand,
 
 // 40 blocks/row: one per CU on gfx1151; cand scratch is rows * 40 * 8 bytes.
 #define ARGMAX_B1 40
+template <bool CheckFinite = false>
 static void argmax_fast_rows(const float* x, int n, int rows,
                              unsigned long long* d_cand, int* out,
                              hipStream_t st) {
-  k_argmax_p1<<<dim3(ARGMAX_B1, rows), 256, 0, st>>>(x, n, d_cand);
+  k_argmax_p1<CheckFinite><<<dim3(ARGMAX_B1, rows), 256, 0, st>>>(x, n, d_cand);
   // p2 is a single-wave reduction (no cross-wave step): launch exactly one
   // wave. A 64-thread block on wave32 dropped candidates 32..39.
   k_argmax_p2<<<dim3(1, rows), 32, 0, st>>>(d_cand, ARGMAX_B1, out);

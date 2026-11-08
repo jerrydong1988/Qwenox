@@ -1,11 +1,66 @@
-// Directly exercise the production router and image-buffer growth code.
+// GPU regressions for the production router, image buffers and HGN decode paths.
 #define main gdec_real_main
 #include "gdec.cpp"
 #undef main
 #include <random>
 
+// Exercise the actual decode kernels at the HGN hidden size and branch count.
+static bool decode_fusion_parity() {
+  constexpr int d = 2560, branches = 4;
+  std::mt19937 rng(76175);
+  std::vector<float> input(d * branches), residual(input.size());
+  for (auto& x : input) x = (int(rng() % 2001) - 1000) * 0.03125f;
+  for (auto& x : residual) x = (int(rng() % 2001) - 1000) * 0.015625f;
+  qwen27::Allocations memory;
+  float* g = memory.get<float>(input.size());
+  float* r = memory.get<float>(residual.size());
+  float* old_out = memory.get<float>(d);
+  float* new_out = memory.get<float>(d);
+  CK(hipMemcpy(g, input.data(), input.size() * sizeof(float), hipMemcpyHostToDevice));
+  CK(hipMemcpy(r, residual.data(), residual.size() * sizeof(float), hipMemcpyHostToDevice));
+  auto same_bits = [&] {
+    std::vector<uint32_t> a(d), b(d);
+    CK(hipMemcpy(a.data(), old_out, d * sizeof(float), hipMemcpyDeviceToHost));
+    CK(hipMemcpy(b.data(), new_out, d * sizeof(float), hipMemcpyDeviceToHost));
+    return a == b;
+  };
+  k_gr_combine<true><<<(d + 255) / 256, 256>>>(g, r, new_out, d, branches);
+  k_sigmoid_inplace<<<(d * branches + 255) / 256, 256>>>(g, d * branches);
+  k_gr_combine<false><<<(d + 255) / 256, 256>>>(g, r, old_out, d, branches);
+  if (!same_bits()) return false;
+  CK(hipMemcpy(old_out, input.data(), d * sizeof(float), hipMemcpyHostToDevice));
+  k_axpy_sg_out<<<(d + 255) / 256, 256>>>(old_out, r, g, new_out, d, d);
+  k_axpy_sg<<<(d + 255) / 256, 256>>>(old_out, r, g, d, d);
+  return same_bits();
+}
+
+static bool checked_greedy_rows() {
+  constexpr int rows = 8, n = qwen27::vocab;
+  std::vector<float> values((size_t)rows * n, -10.f);
+  values[1] = -0.0f;
+  values[n - 1] = +0.0f;  // smallest id wins, even across signed zero
+  values[n + 65] = values[2 * n - 1] = 1.f;
+  values[3 * n - 1] = -std::numeric_limits<float>::infinity();
+  values[3 * n + 77] = std::numeric_limits<float>::infinity();
+  values[5 * n - 1] = std::numeric_limits<float>::quiet_NaN();
+  values[6 * n + 11] = -std::numeric_limits<float>::quiet_NaN();
+  values[8 * n - 1] = 5.f;
+  const std::array<int, rows> expected{1, 65, -1, -1, -1, 0, -1, n - 1};
+  qwen27::Allocations memory;
+  float* scores = memory.get<float>(values.size());
+  auto* scratch = memory.get<unsigned long long>(rows * ARGMAX_B1);
+  int* result = memory.get<int>(rows);
+  CK(hipMemcpy(scores, values.data(), values.size() * sizeof(float), hipMemcpyHostToDevice));
+  argmax_fast_rows<true>(scores, n, rows, scratch, result, nullptr);
+  std::array<int, rows> actual{};
+  CK(hipMemcpy(actual.data(), result, sizeof(actual), hipMemcpyDeviceToHost));
+  return actual == expected;
+}
+
 int main() {
-  int failed = 0, cases = 0;
+  const bool fusion = decode_fusion_parity(), greedy = checked_greedy_rows();
+  printf("decode fusion bit parity=%d; checked greedy ties/nonfinite=%d\n", fusion, greedy);
+  int failed = !fusion + !greedy, cases = 2;
   for (int count : {1, 16, 17, 20, 32, 33}) {
     std::istringstream request("1 1 0 1 1 0 VIMG " + std::to_string(count));
     auto parsed = serve::parse_gen(request);
