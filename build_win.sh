@@ -171,6 +171,8 @@ build_eng_cli() {
 
 build_test() {
     python tools/kv_admission_test.py --cxx "$TR/lib/llvm/bin/clang++.exe"
+    python tools/kv_page_test.py --cxx "$TR/lib/llvm/bin/clang++.exe"
+    python tools/kvsnap_writer_test.py --cxx "$TR/lib/llvm/bin/clang++.exe"
     echo "[编译] build/ktest-win.exe"
     "$HIPCC" "${FLAGS[@]}" -I src/gpu tools/ktest.cu -o build/ktest-win.exe
     echo "[运行] ktest-win（预期末尾 ALL PASS）"

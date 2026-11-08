@@ -50,19 +50,50 @@ int main() {
     }
   }
   uint16_t* images=nullptr;size_t cap=0;
-  grow_image_embeddings(images,cap,0,2000);
+  grow_image_embeddings(images,cap,0,2000,8000);
   std::vector<uint16_t> data(4500*2560),out(data.size());
   for(size_t i=0;i<data.size();++i) data[i]=uint16_t(i*137+19);
   CK(hipMemcpy(images,data.data(),2000*2560*2,hipMemcpyHostToDevice));
-  grow_image_embeddings(images,cap,2000,2500);
+  grow_image_embeddings(images,cap,2000,2500,10000);
   CK(hipMemcpy(out.data(),images,2000*2560*2,hipMemcpyDeviceToHost));
   bool first=cap>=4500 && std::equal(out.begin(),out.begin()+2000*2560,data.begin());
   CK(hipMemcpy(images,data.data(),data.size()*2,hipMemcpyHostToDevice));
-  grow_image_embeddings(images,cap,4500,17);
+  grow_image_embeddings(images,cap,4500,17,68);
   CK(hipMemcpy(out.data(),images,out.size()*2,hipMemcpyDeviceToHost));
   bool second=out==data && cap>=4517;
-  auto same=images;grow_image_embeddings(images,cap,1,1);
+  auto same=images;grow_image_embeddings(images,cap,1,1,4);
   bool no_growth=same==images;
+  // Recover in the same process, retaining the embeddings of earlier images.
+#ifdef _WIN32
+  _putenv_s("QWENOX_VISION_EMBED_OOM", "1");
+  _putenv_s("QWENOX_VISION_OOM_AT", "6");
+#else
+  setenv("QWENOX_VISION_EMBED_OOM", "1", 1);
+  setenv("QWENOX_VISION_OOM_AT", "6", 1);
+#endif
+  const size_t old_cap = cap;
+  bool embedding_failed = false;
+  try {
+    grow_image_embeddings(images, cap, old_cap, 1, 4);
+  } catch (const std::runtime_error&) {
+    embedding_failed = images == same && cap == old_cap;
+  }
+  grow_image_embeddings(images, cap, old_cap, 1, 4);
+  CK(hipMemcpy(out.data(), images, out.size() * 2, hipMemcpyDeviceToHost));
+  const bool embedding_recovered = embedding_failed && cap > old_cap && out == data;
+  VisionTower tower;
+  bool workspace_failed = false;
+  try {
+    tower.ensure(4);
+  } catch (const std::runtime_error&) {
+    workspace_failed = tower.capP == 0 && !tower.d_h && !tower.d_qkv && !tower.d_out;
+  }
+  tower.ensure(4);
+  const bool workspace_recovered = workspace_failed && tower.capP == 4 && tower.d_wts;
+  tower.clear_workspace();
+  failed += !embedding_recovered + !workspace_recovered;
+  cases += 2;
+  printf("vision OOM retry: embeddings=%d workspace=%d\n", embedding_recovered, workspace_recovered);
   CK(hipFree(images));
   failed+=!first+!second+!no_growth;cases+=3;
   printf("image_growth first=%d second=%d no_growth=%d\n",first,second,no_growth);

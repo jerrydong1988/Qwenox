@@ -111,6 +111,11 @@ bool file_exists(const std::string& path) {
     return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+static bool engine_runtime_key(const std::string& name) {
+    return name.compare(0, 5, "GDEC_") == 0 || name == "QWENOX_PLE_IO_TIMEOUT_MS" ||
+           name == "QWENOX_SEND_TIMEOUT";
+}
+
 std::string engine_executable() {
     return file_exists("build\\qwenox-engine-win.exe")
         ? "build\\qwenox-engine-win.exe" : "build\\gdec-win.exe";
@@ -1025,7 +1030,7 @@ int main(int argc, char** argv) {
     // switches after built-in defaults so direct native launches can reproduce
     // a tested policy without a separate PowerShell entry point.
     for (const auto& entry : g_conf) {
-        if (entry.first.compare(0, 5, "GDEC_") == 0)
+        if (engine_runtime_key(entry.first))
             SetEnvironmentVariableA(entry.first.c_str(), entry.second.c_str());
     }
     SetEnvironmentVariableA("GDEC_KVSNAP", kvsnap_max_gb ? "1" : "0");
@@ -1089,8 +1094,11 @@ int main(int argc, char** argv) {
     // the C runtime's original getenv snapshot.
     LPCH environment = GetEnvironmentStringsA();
     if (environment) {
-        for (const char* item = environment; *item; item += strlen(item) + 1)
-            if (strncmp(item, "GDEC_", 5) == 0) printf("runtime %s\n", item);
+        for (const char* item = environment; *item; item += strlen(item) + 1) {
+            const char* equals = strchr(item, '=');
+            if (equals && engine_runtime_key(std::string(item, equals)))
+                printf("runtime %s\n", item);
+        }
         FreeEnvironmentStringsA(environment);
     }
     if (check_only) {

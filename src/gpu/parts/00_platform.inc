@@ -52,6 +52,25 @@ static inline void sock_rcvtimeo(sockfd_t fd, int sec) {
   setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
 #endif
 }
+// A client that stops reading must eventually release its generation slot.
+static inline void configure_send_timeout(sockfd_t fd) {
+  static const int sec = [] {
+    const char* value = getenv("QWENOX_SEND_TIMEOUT");
+    if (!value) return 30;
+    char* end = nullptr;
+    long seconds = strtol(value, &end, 10);
+    if (end == value || *end || seconds < 0) return 30;
+    return (int)std::min(seconds, 2147483L);  // sec * 1000 fits signed int
+  }();
+  if (!sec) return;  // a fresh socket defaults to blocking sends
+#ifdef _WIN32
+  DWORD ms = (DWORD)(sec * 1000);
+  setsockopt((SOCKET)fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&ms, sizeof ms);
+#else
+  timeval tv{sec, 0};
+  setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+#endif
+}
 
 using hgn::Checkpoint;
 using hgn::Tensor;

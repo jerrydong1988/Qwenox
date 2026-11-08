@@ -19,6 +19,7 @@ cd "$ROOT"
 if [[ -f service.conf ]]; then
   _env_start_timeout="${START_TIMEOUT-}"
   source service.conf
+  export QWENOX_PLE_IO_TIMEOUT_MS QWENOX_SEND_TIMEOUT
   START_TIMEOUT="${_env_start_timeout:-1800}"
 fi
 fail() { echo "错误：$*" >&2; exit 1; }

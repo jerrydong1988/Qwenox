@@ -89,11 +89,13 @@ def main():
             ("reject-hostname", "localhost", None, None, False),
         ]
         for case, configured, override, expected, valid in cases:
-            conf = original_conf
+            conf = original_conf + 'QWENOX_SEND_TIMEOUT="12"\nQWENOX_PLE_IO_TIMEOUT_MS="1500"\n'
             if configured is not None:
                 conf += 'ENGINE_HOST="${ENGINE_HOST:-' + configured + '}"\n'
             (root / "service.conf").write_text(conf, encoding="utf-8", newline="\n")
             case_env = dict(env)
+            for key in ("QWENOX_SEND_TIMEOUT", "QWENOX_PLE_IO_TIMEOUT_MS"):
+                case_env.pop(key, None)
             if override is not None:
                 case_env["ENGINE_HOST"] = override
             for name, command in commands:
@@ -104,6 +106,9 @@ def main():
                 output = result.stdout + result.stderr
                 if valid:
                     assert result.returncode == 0, f"{name} {case}: {output}"
+                    if name == "start_win.exe":
+                        assert "runtime QWENOX_SEND_TIMEOUT=12" in output, output
+                        assert "runtime QWENOX_PLE_IO_TIMEOUT_MS=1500" in output, output
                     assert f"engine {expected}:{engine_port}" in output, f"{name} {case}: {output}"
                     if name in ("start_hgn.sh", "start_gguf.sh"):
                         assert f"--host {expected}" in output, f"{name} {case}: {output}"

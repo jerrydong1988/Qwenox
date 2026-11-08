@@ -1,11 +1,23 @@
 // Preserve previously encoded images when the request outgrows its buffer.
 static void grow_image_embeddings(uint16_t*& d_img_emb, size_t& img_emb_cap,
-                                  size_t emb_off, int M) {
+                                  size_t emb_off, size_t M, int P) {
   if (emb_off + (size_t)M > img_emb_cap) {
     // Previous images are consumed only at prefill, after all images are encoded.
     size_t ncap = std::max<size_t>(emb_off + M, 4096);
     uint16_t* nbuf = nullptr;
-    CK(hipMalloc(&nbuf, ncap * 2560 * 2));
+    const size_t bytes = ncap * 2560 * 2;
+    static std::atomic<bool> test_fired{false};
+    const char* test = getenv("QWENOX_VISION_EMBED_OOM");
+    const bool inject = test && atoi(test) != 0 && !test_fired.exchange(true);
+    hipError_t error = hipSuccess;
+    if (inject) {
+      fprintf(stderr, "vision: injected allocation failure at d_img_emb (P=%d)\n", P);
+      error = hipErrorMemoryAllocation;
+    } else {
+      error = hipMalloc(&nbuf, bytes);
+    }
+    if (error != hipSuccess)
+      vision_alloc_fail("d_img_emb", bytes, P, error, memstats_snapshot());
     if (d_img_emb && emb_off)
       CK(hipMemcpy(nbuf, d_img_emb, emb_off * 2560 * 2, hipMemcpyDeviceToDevice));
     if (d_img_emb) (void)hipFree(d_img_emb);
@@ -1435,6 +1447,14 @@ struct GpuModel {
     vision_on = true;
   }
 
+  // Estimate the additional allocation peak for this request on candidate slot s.
+  // The shared ViT workspace and per-slot embedding high-water marks are already
+  // committed and must not be charged a second time.
+  size_t vision_memory_need(int s, const VisionMemDemand& demand) const {
+    const size_t cap_rows = s == bound_ ? img_emb_cap : slots_[(size_t)s].img_emb_cap;
+    return vision_memory_budget(vt.capP, cap_rows, demand);
+  }
+
   // Run the ViT over each image's patches and build the injection map.
   // grids/ids were already validated by set_mrope (same run-walking logic
   // here); images are t==1 only at this stage. Returns false on any
@@ -1487,7 +1507,14 @@ struct GpuModel {
         i = j;
         continue;
       }
-      grow_image_embeddings(d_img_emb, img_emb_cap, emb_off, M);
+      // Reserve once on the first uncached image: later growth must not hold
+      // two nearly request-sized embeddings beyond the admission estimate.
+      if (emb_off == 0) {
+        size_t rows = M;
+        for (size_t next = gi; next < patches.size(); ++next)
+          rows += patches[next].size() / (1536 * 4);
+        grow_image_embeddings(d_img_emb, img_emb_cap, 0, rows, P);
+      }
       auto t0 = std::chrono::steady_clock::now();
       // Debug hook (GDEC_VISION_EMBEDS_NPY=<f4 (M,2560) npy>): inject
       // precomputed embeds (host bf16 RNE) instead of running the ViT.
@@ -3755,8 +3782,16 @@ struct GpuModel {
     if ((end + KV_PAGE - 1) / KV_PAGE > kv_lpages) kv_fatal("beyond maxctx", end);
     const int m0 = kv_seq.mapped;
     // pool dry: evict pinned checkpoints (LRU first) until the rows fit
-    while (!kv_seq.reserve(kv_pool, end))
-      if (!kv_evict_one()) kv_fatal("pool exhausted", end);
+    try {
+      while (!kv_seq.reserve(kv_pool, end))
+        if (!kv_evict_one()) kv_fatal("pool exhausted", end);
+    } catch (...) {
+      // reserve() may have taken tail pages before eviction aborted the request.
+      if (kv_seq.mapped > m0)
+        CK(hipMemcpy(d_ptab + m0, kv_seq.tab.data() + m0,
+                     (size_t)(kv_seq.mapped - m0) * 4, hipMemcpyHostToDevice));
+      throw;
+    }
     CK(hipMemcpy(d_ptab + m0, kv_seq.tab.data() + m0,
                  (size_t)(kv_seq.mapped - m0) * 4, hipMemcpyHostToDevice));
     if (kv_zero_dbg)  // debug: fresh pages read as zeros, like a zeroed unpaged cache
@@ -3773,6 +3808,8 @@ struct GpuModel {
   // holding `start`), then the tail is mapped. Cheap host check otherwise.
   void kv_prepare(int start, int end) {
     if (!kv_paged) return;
+    while (kv_pool.nfree() < kv_seq.prepare_need(kv_pool, start, end))
+      if (!kv_evict_one()) kv_fatal("pool exhausted (prepare)", end);
     const int lp1 = std::min(kv_seq.mapped, (end + KV_PAGE - 1) / KV_PAGE);
     for (int lp = std::max(0, start) / KV_PAGE; lp < lp1; lp++)
       if (kv_pool.ref[(size_t)kv_seq.tab[(size_t)lp]] > 1) kv_cow(lp);

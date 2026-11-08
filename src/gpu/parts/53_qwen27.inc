@@ -647,6 +647,7 @@ static int listen(Model& m,const std::string& host,int port){
   }
   fprintf(stderr,"qwen27: listening on %s:%d (context %d, one slot, %s, gamma %d, prefill %s/%d)\n",host.c_str(),port,m.maxctx,m.dflash_enabled?"DFlash2":(m.mtp_enabled?"MTP":"serial"),m.dflash_enabled?m.dflash_gamma:(m.mtp_enabled?m.mtp_gamma:0),m.fast_prefill?"compensated":"FP32",m.prefill_chunk);
   for(;;){sockfd_t client=accept(fd,nullptr,nullptr);if(client<0)continue;
+    configure_send_timeout(client);
     setsockopt(client,IPPROTO_TCP,TCP_NODELAY,reinterpret_cast<const char*>(&one),sizeof one);
     std::thread(connection,std::ref(m),client).detach();}
 }

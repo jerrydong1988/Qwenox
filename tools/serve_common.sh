@@ -23,6 +23,7 @@ serve_init() {
     *) fail "$usage" ;;
   esac
   source "$ROOT/service.conf"
+  export QWENOX_PLE_IO_TIMEOUT_MS QWENOX_SEND_TIMEOUT
   ENGINE_HOST="${ENGINE_HOST:-127.0.0.1}"
   # 旧版 service.conf 没有这几项时的缺省值（与 service.conf 相同）
   KV_PAGED="${KV_PAGED:-1}"

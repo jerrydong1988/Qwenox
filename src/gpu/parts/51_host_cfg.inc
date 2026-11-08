@@ -218,8 +218,13 @@ static void buf_put(HBuf&& b) {
   if (!b.p) return;
   std::lock_guard<std::mutex> lk(g_pool_mtx);
   if (g_pool_bytes + b.cap > g_pool_max) return;  // freed on scope exit
-  g_pool_bytes += b.cap;
-  g_pool.push_back(std::move(b));
+  const size_t cap = b.cap;
+  try {
+    g_pool.push_back(std::move(b));
+    g_pool_bytes += cap;
+  } catch (const std::bad_alloc&) {
+    // Pooling is optional; the caller still owns the buffer on failure.
+  }
 }
 
 // ---- files -------------------------------------------------------------------
@@ -256,21 +261,24 @@ __attribute__((format(printf, 1, 2))) static void logf_locked(const char* fmt, .
   va_start(ap, fmt);
   const int k = vsnprintf(b, sizeof b, fmt, ap);
   va_end(ap);
-  if (k > 0) tl_log.append(b, std::min((size_t)k, sizeof b - 1));
+  if (k > 0) {
+    try { tl_log.append(b, std::min((size_t)k, sizeof b - 1)); }
+    catch (const std::bad_alloc&) {}  // Logging cannot interrupt an index update.
+  }
 }
 static void flush_log() {  // call with g_mtx NOT held
   if (tl_log.empty()) return;
   fputs(tl_log.c_str(), stderr);
   tl_log.clear();
 }
-static void rm_file(const std::string& name) {
-  std::error_code ec;
-  std::filesystem::remove(path_of(name), ec);
-  // Windows: a sharing violation (antivirus scan, indexer, an open handle)
-  // leaves the file on disk although the index already dropped its bytes
-  if (ec)
-    logf_locked("kvsnap: cannot delete %s (error %d); the file stays on disk\n",
-                name.c_str(), ec.value());
+static void rm_file(const std::string& name) noexcept {
+  try {
+    std::error_code ec;
+    std::filesystem::remove(path_of(name), ec);
+    if (ec) logf_locked("kvsnap: cannot delete %s (error %d)\n", name.c_str(), ec.value());
+  } catch (const std::exception&) {
+    // Startup indexing can collect the unreferenced file later.
+  }
 }
 static bool wr_all(int fd, const char* p, size_t n) {
   while (n) {
@@ -293,17 +301,28 @@ static bool rd_all(int fd, char* p, size_t n) {
 // tmp_<name>, fdatasync, rename: a crash never publishes a torn file.
 static bool write_file(const std::string& name, const char* p, size_t n) {
   const std::string tmp = path_of("tmp_" + name);
+  const std::filesystem::path temporary(tmp), destination(path_of(name));
   int fd = os_open_wr(tmp.c_str());
   if (fd < 0) return false;
+  struct TempFile {
+    const std::filesystem::path& path;
+    bool published = false;
+    ~TempFile() {
+      if (!published) {
+        try { std::error_code ec; std::filesystem::remove(path, ec); }
+        catch (const std::exception&) {}
+      }
+    }
+  } cleanup{temporary};
   bool ok = wr_all(fd, p, n) && os_sync(fd) == 0;
   if (ok) os_drop_cache(fd);  // clean now: don't let the page cache keep it
   if (os_close(fd)) ok = false;
   std::error_code ec;
   if (ok) {
-    std::filesystem::rename(tmp, path_of(name), ec);
+    std::filesystem::rename(temporary, destination, ec);
     ok = !ec;
   }
-  if (!ok) std::filesystem::remove(tmp, ec);
+  cleanup.published = ok;
   return ok;
 }
 // Whole file into a pooled buffer; `want` = exact expected size (0 = any,
@@ -361,7 +380,8 @@ static void unref_locked(std::unordered_map<uint64_t, Blk>& mp, uint64_t key, bo
   if (it == mp.end() || --it->second.refs > 0) return;
   if (it->second.st == ST_PEND) return;  // the writer deletes it on publish
   if (it->second.st == ST_PUB) {
-    rm_file(mtp ? mt_name(key) : ch_name(key));
+    try { rm_file(mtp ? mt_name(key) : ch_name(key)); }
+    catch (const std::bad_alloc&) {}  // Name allocation may fail; retire the index anyway.
     g_total -= it->second.bytes;
   }
   mp.erase(it);
@@ -392,8 +412,10 @@ static void evict_locked(const CkEnt* keep) {
 static void touch_locked(const std::shared_ptr<CkEnt>& e) {
   e->t = now_t();
   std::error_code ec;  // the file mtime carries the LRU order across restarts
-  std::filesystem::last_write_time(path_of(e->name),
-                                   std::filesystem::file_time_type::clock::now(), ec);
+  try {
+    std::filesystem::last_write_time(path_of(e->name),
+                                    std::filesystem::file_time_type::clock::now(), ec);
+  } catch (const std::exception&) {}  // In-memory LRU time is sufficient.
 }
 
 // ---- background writer -------------------------------------------------------
@@ -427,21 +449,26 @@ static void writer() {
     char* p = it.buf.data();
     std::string name;
     bool go = true;
-    if (it.kind == 2) {
-      std::lock_guard<std::mutex> lk(g_mtx);
-      for (uint64_t k : it.ck->chunks) {
-        auto f = g_ch.find(k);
-        if (f == g_ch.end() || f->second.st != ST_PUB) go = false;
-      }
-      name = it.ck->name;
-    } else {
-      name = it.kind ? mt_name(it.key) : ch_name(it.key);
-    }
-    const size_t hb = it.kind == 2 ? sizeof(CkHdr) : sizeof(ChHdr);
-    const uint64_t sum = sum64(p + hb, len - hb);
-    memcpy(p + (it.kind == 2 ? offsetof(CkHdr, sum) : offsetof(ChHdr, sum)), &sum, 8);
     const auto w0 = std::chrono::steady_clock::now();
-    const bool ok = go && write_file(name, p, len);
+    bool ok = false;
+    try {
+      if (it.kind == 2) {
+        std::lock_guard<std::mutex> lk(g_mtx);
+        for (uint64_t k : it.ck->chunks) {
+          auto f = g_ch.find(k);
+          if (f == g_ch.end() || f->second.st != ST_PUB) go = false;
+        }
+        name = it.ck->name;
+      } else {
+        name = it.kind ? mt_name(it.key) : ch_name(it.key);
+      }
+      const size_t hb = it.kind == 2 ? sizeof(CkHdr) : sizeof(ChHdr);
+      const uint64_t sum = sum64(p + hb, len - hb);
+      memcpy(p + (it.kind == 2 ? offsetof(CkHdr, sum) : offsetof(ChHdr, sum)), &sum, 8);
+      ok = go && write_file(name, p, len);
+    } catch (const std::exception& e) {
+      fprintf(stderr, "kvsnap: writer I/O failed: %s\n", e.what());
+    }
     const double ws =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - w0).count();
     {
@@ -470,7 +497,7 @@ static void writer() {
         } else {
           // same state saved before without MTP state: this file replaced it
           for (auto& o : g_ck)
-            if (o != e && o->name == e->name) {
+            if (o != e && o->pub && o->name == e->name) {
               drop_ck_locked(o, false);
               break;
             }
@@ -497,8 +524,23 @@ static void enqueue(Item&& it) {
   std::unique_lock<std::mutex> lk(g_mtx);
   // bounded: the GPU thread waits for the disk rather than hoard host memory
   g_cv.wait(lk, [&] { return g_q_bytes == 0 || g_q_bytes + it.buf.n <= g_qcap; });
-  g_q_bytes += it.buf.n;
-  g_q.push_back(std::move(it));
+  const size_t len = it.buf.n;
+  try {
+    g_q.push_back(std::move(it));
+  } catch (const std::bad_alloc&) {
+    if (it.kind == 2) {
+      drop_ck_locked(it.ck, false);
+    } else {
+      auto& blocks = it.kind ? g_mt : g_ch;
+      auto block = blocks.find(it.key);
+      if (block != blocks.end()) {
+        if (block->second.refs) block->second.st = ST_FAIL;
+        else blocks.erase(block);
+      }
+    }
+    return;
+  }
+  g_q_bytes += len;
   lk.unlock();
   g_cv.notify_all();
 }
@@ -1017,7 +1059,15 @@ static bool restore(GpuModel& m, const std::shared_ptr<CkEnt>& e,
   const auto t0 = std::chrono::steady_clock::now();
   uint64_t bad = 0;
   int npages = 0;
-  const int rc = restore_body(m, *e, prompt, mtp_out, &bad, &npages);
+  // match() pins the entry before any host allocation or KV eviction in restore.
+  int rc;
+  try {
+    rc = restore_body(m, *e, prompt, mtp_out, &bad, &npages);
+  } catch (...) {
+    std::lock_guard<std::mutex> lk(g_mtx);
+    --e->busy;
+    throw;
+  }
   {
     std::lock_guard<std::mutex> lk(g_mtx);
     e->busy--;
@@ -1027,11 +1077,12 @@ static bool restore(GpuModel& m, const std::shared_ptr<CkEnt>& e,
       drop_ck_locked(e, true);
     } else if (rc == RS_PAGE) {
       // a damaged page invalidates every checkpoint built on it
-      std::vector<std::shared_ptr<CkEnt>> v;
-      for (auto& o : g_ck)
-        if (o->pub && !o->busy && std::count(o->chunks.begin(), o->chunks.end(), bad))
-          v.push_back(o);
-      for (auto& o : v) drop_ck_locked(o, true);
+      for (size_t i = g_ck.size(); i > 0; --i) {
+        const auto& entry = g_ck[i - 1];
+        if (entry->pub && !entry->busy &&
+            std::count(entry->chunks.begin(), entry->chunks.end(), bad))
+          drop_ck_locked(entry, true);
+      }
     }
   }
   flush_log();
@@ -1988,12 +2039,16 @@ static void log_prefix_miss(long long req, const std::vector<int>& ids, int chos
 
 // Wait (FIFO) for an idle slot and claim it; -1 if cancelled while queued,
 // -2 if the shared KV pool cannot fit the request alongside the reservations
-// of the requests already running.
+// of the requests already running, -3 if a vision request cannot fit even
+// after all other requests have left.
 static int slot_admit(GpuModel& m, const std::vector<int>& ids, int max_tokens,
-                      const std::atomic<bool>& cancel, long long req) {
+                      const std::atomic<bool>& cancel, long long req,
+                      const VisionMemDemand& vision = VisionMemDemand{}) {
   std::unique_lock<std::mutex> lk(g_sm);
   const uint64_t t = g_ticket++;
   g_wait.push_back(t);
+  bool vision_waiting = false;
+  std::chrono::steady_clock::time_point vision_wait_start;
   for (;;) {
     if (cancel) {
       g_wait.remove(t);
@@ -2013,6 +2068,61 @@ static int slot_admit(GpuModel& m, const std::vector<int>& ids, int max_tokens,
       }
       const int s = pick_slot(ids);
       if (s >= 0) {
+        const size_t vision_need =
+            vision.max_p > 0 ? m.vision_memory_need(s, vision) : 0;
+        EngineMemStats vision_ms;
+        if (vision_need || vision_waiting) vision_ms = memstats_snapshot();
+        static std::atomic<bool> test_low_fired{false};
+        const char* test_low = getenv("QWENOX_VISION_TEST_LOW_ONCE");
+        if (vision_need && test_low && atoi(test_low) != 0 &&
+            !test_low_fired.exchange(true)) {
+          vision_ms.hip_free = 0;
+          fprintf(stderr, "%s req %lld: injected low vision memory once\n", log_ts(), req);
+        }
+        if (vision_need && vision_ms.hip_total && vision_ms.hip_free < vision_need) {
+          bool peers = false;
+          for (size_t i = 0; i < g_slots.size(); i++)
+            if ((int)i != s && g_slots[i].busy) peers = true;
+          if (!peers) {
+            fprintf(stderr,
+                    "%s req %lld rejected at admission: vision memory needs %.2f GiB "
+                    "(P=%d rows=%zu), only %.2f GiB free with no active peer to wait for\n",
+                    log_ts(), req, vision_need / 1073741824.0, vision.max_p,
+                    vision.rows, vision_ms.hip_free / 1073741824.0);
+            g_wait.pop_front();
+            g_scv.notify_all();
+            lk.unlock();
+            g_turn.release();
+            return -3;
+          }
+          if (!vision_waiting) {
+            vision_waiting = true;
+            vision_wait_start = std::chrono::steady_clock::now();
+            fprintf(stderr,
+                    "%s req %lld waiting for vision memory: need %.2f GiB, free %.2f GiB "
+                    "(P=%d rows=%zu)\n",
+                    log_ts(), req, vision_need / 1073741824.0,
+                    vision_ms.hip_free / 1073741824.0, vision.max_p, vision.rows);
+          }
+          // Keep the FIFO ticket, but never hold the GPU while sleeping: the
+          // active peer must be able to finish and release its temporary memory.
+          lk.unlock();
+          g_turn.release();
+          lk.lock();
+          g_scv.wait_for(lk, std::chrono::milliseconds(50));
+          continue;
+        }
+        if (vision_waiting) {
+          const double waited = std::chrono::duration<double>(
+                                    std::chrono::steady_clock::now() - vision_wait_start)
+                                    .count();
+          fprintf(stderr,
+                  "%s req %lld vision memory ready after %.1f s: need %.2f GiB, "
+                  "free %.2f GiB\n",
+                  log_ts(), req, waited, vision_need / 1073741824.0,
+                  vision_ms.hip_free / 1073741824.0);
+          vision_waiting = false;
+        }
         if (m.nslots > 1 && m.kv_paged) {
           const Slot& sl = g_slots[(size_t)s];
           size_t lcp = 0;
@@ -2232,7 +2342,18 @@ static void gen_one(GpuModel& m, Conn& c, GenReq g,
       return;
     }
   }
-  const int s = slot_admit(m, g.ids, g.max_tokens, cancel, (long long)g.req);
+  VisionMemDemand vision_demand;
+  for (int i = 0; i < g.vimg; i++) {
+    const int p = (int)(vpatches[i].size() / 1536);
+    vision_demand.max_p = std::max(vision_demand.max_p, p);
+    vision_demand.rows = vision_mem_add(vision_demand.rows, (size_t)p / 4);
+  }
+  const int s =
+      slot_admit(m, g.ids, g.max_tokens, cancel, (long long)g.req, vision_demand);
+  if (s == -3) {
+    finish(err_line());
+    return;
+  }
   if (s == -2) {
     fprintf(stderr, "%s serve: req %lld failed: KV pool cannot fit it "
             "alongside the running request(s)\n", log_ts(), (long long)g.req);
@@ -3231,6 +3352,7 @@ static int run(GpuModel& m, const std::string& host, int port) {
   for (;;) {
     sockfd_t cfd = accept(lfd, nullptr, nullptr);
     if (cfd < 0) continue;
+    configure_send_timeout(cfd);
     setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, (const char*)&one, sizeof one);
     fprintf(stderr, "%s serve: client connected\n", log_ts());
     std::thread(conn_main, std::ref(m), cfd, std::cref(kvs)).detach();
