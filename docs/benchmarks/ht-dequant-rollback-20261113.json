@@ -1,0 +1,740 @@
+{
+  "source": {
+    "commit": "e05982a75d82b3f483fd2fb1f46b1d0209f91dd2",
+    "tree": "b7a13a786fbff84fd01456d5a66c3bae2629c2ed",
+    "engine_sha256": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53"
+  },
+  "timestamp": "2026-11-13T23:32:52.734150+08:00",
+  "change": "Remove ht_dense_exact_streamed; use the existing block-synchronized ht_dense reference when GDEC_V2_HT_DEQ_EXACT=1. Other expert and decode optimizations are unchanged.",
+  "unit_validation": {
+    "cpu_reference": "12 shape/seed cases with independent CPU tiles and output guards",
+    "buffer_reuse_stress": 16384,
+    "unequal": 0
+  },
+  "scope": "Pinned deployment DLLs; isolated ports/CWD; disk/retry cache disabled; no live prefix reuse. Flash context cap 65536 and KV pool 131072 for isolated testing; production profile is separately tested by the native launcher after deployment.",
+  "profiles": {
+    "flash": {
+      "quality_baseline": {
+        "label": "flash-baseline",
+        "answers": 35,
+        "passed": 35,
+        "code_assertions": 7335,
+        "failures": [],
+        "repeat_pairs": [
+          {
+            "name": "arithmetic-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "arithmetic-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "compound-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "compound-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "sort-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "sort-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "extract-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "extract-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "binary-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "binary-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "group-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "group-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "explain-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "explain-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          }
+        ]
+      },
+      "quality_candidate": {
+        "label": "flash-candidate",
+        "answers": 35,
+        "passed": 35,
+        "code_assertions": 7335,
+        "failures": [],
+        "repeat_pairs": [
+          {
+            "name": "arithmetic-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "arithmetic-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "compound-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "compound-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "sort-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "sort-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "extract-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "extract-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "binary-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "binary-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "group-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "group-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "explain-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "explain-4",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          }
+        ]
+      },
+      "quality_tokens_and_logprobs_identical": 35,
+      "performance": [
+        {
+          "prompt_tokens": 13,
+          "repetitions": 3,
+          "old_prefill_ms": 357.8,
+          "new_prefill_ms": 903.7,
+          "prefill_change_percent": 152.57126886528786,
+          "old_decode_tokens_per_second": 44.583768721699755,
+          "new_decode_tokens_per_second": 44.263088733660695,
+          "decode_change_percent": -0.7192751919219864,
+          "same_generated_tokens": true
+        },
+        {
+          "prompt_tokens": 1024,
+          "repetitions": 3,
+          "old_prefill_ms": 1077.8,
+          "new_prefill_ms": 1634.2,
+          "prefill_change_percent": 51.62367786231212,
+          "old_decode_tokens_per_second": 46.48122594233423,
+          "new_decode_tokens_per_second": 45.733885951121906,
+          "decode_change_percent": -1.6078319279691278,
+          "same_generated_tokens": true
+        },
+        {
+          "prompt_tokens": 8192,
+          "repetitions": 2,
+          "old_prefill_ms": 5649.35,
+          "new_prefill_ms": 6242.700000000001,
+          "prefill_change_percent": 10.502978218733139,
+          "old_decode_tokens_per_second": 48.482377344197744,
+          "new_decode_tokens_per_second": 48.05929435630034,
+          "decode_change_percent": -0.8726531392917236,
+          "same_generated_tokens": true
+        },
+        {
+          "prompt_tokens": 32768,
+          "repetitions": 1,
+          "old_prefill_ms": 22173.9,
+          "new_prefill_ms": 24374.0,
+          "prefill_change_percent": 9.922025444328675,
+          "old_decode_tokens_per_second": 42.28609184010571,
+          "new_decode_tokens_per_second": 43.859649122807014,
+          "decode_change_percent": 3.7212171052631637,
+          "same_generated_tokens": true
+        }
+      ],
+      "long_context": 32768,
+      "long_needle_answer": "731942",
+      "fixed_seed": [
+        {
+          "drafter": 1,
+          "repetitions": 32,
+          "token_variants": 1,
+          "logprob_variants": 1
+        },
+        {
+          "drafter": 4,
+          "repetitions": 32,
+          "token_variants": 1,
+          "logprob_variants": 1
+        }
+      ],
+      "parallel_requests_passed": 2,
+      "engine_sha256": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+      "effective_configuration": {
+        "GDEC_AXPY_SG_OUT": "1",
+        "GDEC_GR_COMBINE_SIG": "1",
+        "GDEC_LT_BUCKET": "1",
+        "GDEC_PARALLEL": "2",
+        "GDEC_PREFILL_CHUNK": "8192",
+        "GDEC_V2_HT_DEQ_EXACT": "1"
+      },
+      "runtime_dlls": {
+        "libhipblaslt.dll": "746fa2f7e037b3d03a0b904659bfc21bfbf0fe1a86f127564ac2dee38b85442e",
+        "amdhip64_7.dll": "546fb3d6e2d2194a9526fb94ec2fd3aa5b92a48a7595f04efece80162047ef69",
+        "rocblas.dll": "8ecbe340d8052e5292a47b96f3c93c20767ced0032db47851b792da7039d1e0b"
+      }
+    },
+    "q27": {
+      "quality_baseline": {
+        "label": "q27-baseline",
+        "answers": 21,
+        "passed": 18,
+        "code_assertions": 4401,
+        "failures": [
+          {
+            "name": "extract-1-0",
+            "error": "JSONDecodeError('Expecting value: line 1 column 1 (char 0)')",
+            "text": "```json\n[\n  {\n    \"name\": \"王青\",\n    \"books\": 3\n  },\n  {\n    \"name\": \"李明\",\n    \"books\": 5\n  },\n  {\n    \"name\": \"陈红\",\n    \"books\": 2\n  }\n]\n```"
+          },
+          {
+            "name": "extract-1-1",
+            "error": "JSONDecodeError('Expecting value: line 1 column 1 (char 0)')",
+            "text": "```json\n[\n  {\n    \"name\": \"王青\",\n    \"books\": 3\n  },\n  {\n    \"name\": \"李明\",\n    \"books\": 5\n  },\n  {\n    \"name\": \"陈红\",\n    \"books\": 2\n  }\n]\n```"
+          },
+          {
+            "name": "extract-0-0",
+            "error": "JSONDecodeError('Expecting value: line 1 column 1 (char 0)')",
+            "text": "```json\n[\n  {\n    \"name\": \"王青\",\n    \"books\": 3\n  },\n  {\n    \"name\": \"李明\",\n    \"books\": 5\n  },\n  {\n    \"name\": \"陈红\",\n    \"books\": 2\n  }\n]\n```"
+          }
+        ],
+        "repeat_pairs": [
+          {
+            "name": "arithmetic-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "compound-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "sort-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "extract-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "binary-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "group-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "explain-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          }
+        ]
+      },
+      "quality_candidate": {
+        "label": "q27-candidate",
+        "answers": 21,
+        "passed": 18,
+        "code_assertions": 4401,
+        "failures": [
+          {
+            "name": "extract-1-0",
+            "error": "JSONDecodeError('Expecting value: line 1 column 1 (char 0)')",
+            "text": "```json\n[\n  {\n    \"name\": \"王青\",\n    \"books\": 3\n  },\n  {\n    \"name\": \"李明\",\n    \"books\": 5\n  },\n  {\n    \"name\": \"陈红\",\n    \"books\": 2\n  }\n]\n```"
+          },
+          {
+            "name": "extract-1-1",
+            "error": "JSONDecodeError('Expecting value: line 1 column 1 (char 0)')",
+            "text": "```json\n[\n  {\n    \"name\": \"王青\",\n    \"books\": 3\n  },\n  {\n    \"name\": \"李明\",\n    \"books\": 5\n  },\n  {\n    \"name\": \"陈红\",\n    \"books\": 2\n  }\n]\n```"
+          },
+          {
+            "name": "extract-0-0",
+            "error": "JSONDecodeError('Expecting value: line 1 column 1 (char 0)')",
+            "text": "```json\n[\n  {\n    \"name\": \"王青\",\n    \"books\": 3\n  },\n  {\n    \"name\": \"李明\",\n    \"books\": 5\n  },\n  {\n    \"name\": \"陈红\",\n    \"books\": 2\n  }\n]\n```"
+          }
+        ],
+        "repeat_pairs": [
+          {
+            "name": "arithmetic-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "compound-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "sort-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "extract-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "binary-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "group-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          },
+          {
+            "name": "explain-1",
+            "tokens_equal": true,
+            "logprobs_equal": true
+          }
+        ]
+      },
+      "quality_tokens_and_logprobs_identical": 21,
+      "performance": [
+        {
+          "prompt_tokens": 13,
+          "repetitions": 3,
+          "old_prefill_ms": 1511.13,
+          "new_prefill_ms": 1502.3,
+          "prefill_change_percent": -0.584330931157484,
+          "old_decode_tokens_per_second": 18.033248802479573,
+          "new_decode_tokens_per_second": 18.14691630018402,
+          "decode_change_percent": 0.6303217958641971,
+          "same_generated_tokens": true
+        },
+        {
+          "prompt_tokens": 1024,
+          "repetitions": 3,
+          "old_prefill_ms": 5760.55,
+          "new_prefill_ms": 5753.85,
+          "prefill_change_percent": -0.1163083386135022,
+          "old_decode_tokens_per_second": 20.852814967107943,
+          "new_decode_tokens_per_second": 20.9750789842818,
+          "decode_change_percent": 0.5863190047325162,
+          "same_generated_tokens": true
+        },
+        {
+          "prompt_tokens": 7168,
+          "repetitions": 2,
+          "old_prefill_ms": 53717.05,
+          "new_prefill_ms": 53886.45,
+          "prefill_change_percent": 0.3153561113277803,
+          "old_decode_tokens_per_second": 17.526217896975385,
+          "new_decode_tokens_per_second": 17.366126577711867,
+          "decode_change_percent": -0.9134390557311689,
+          "same_generated_tokens": true
+        }
+      ],
+      "long_context": 7168,
+      "long_needle_answer": "731942",
+      "engine_sha256": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+      "effective_configuration": {
+        "GDEC_PARALLEL": "1",
+        "GDEC_PREFILL_CHUNK": "512",
+        "GDEC_QWEN27_PREFILL_MODE": "compensated"
+      },
+      "runtime_dlls": {
+        "libhipblaslt.dll": "746fa2f7e037b3d03a0b904659bfc21bfbf0fe1a86f127564ac2dee38b85442e",
+        "amdhip64_7.dll": "546fb3d6e2d2194a9526fb94ec2fd3aa5b92a48a7595f04efece80162047ef69",
+        "rocblas.dll": "8ecbe340d8052e5292a47b96f3c93c20767ced0032db47851b792da7039d1e0b"
+      }
+    }
+  },
+  "performance_limits": "Local bounded measurements; median of 2-3 repeats except 32768 tokens with one repeat. Load/JIT warmup excluded. Decode uses a fixed 64-token generation budget; full-answer quality is tested separately.",
+  "deployment_validation": [
+    {
+      "profile": "Qwenox",
+      "model": "qwen3.8-flash-next",
+      "backup_directory_name": "ht-dequant-reference-20261113T153342Z",
+      "engine_sha256": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+      "unchanged_config_sha256": "d5202a2c2e2e5e95ac6468d30b8bb14a375b2ecf29c890f613d3ddbb74f33536",
+      "preserved_files_verified": 271,
+      "health": {
+        "status": "ok",
+        "model": "qwen3.8-flash-next",
+        "endpoints": [
+          "/v1/chat/completions",
+          "/v1/completions",
+          "/v1/models",
+          "/v1/messages",
+          "/v1/messages/count_tokens",
+          "/v1/tokenize",
+          "/v1/detokenize",
+          "/v1/responses",
+          "/dashboard",
+          "/reqstat/summary",
+          "/reqstat/tail",
+          "/metrics/live"
+        ],
+        "rope_scaling": null,
+        "context": 262144,
+        "slot_ctx": 262144,
+        "slots": 2,
+        "kv_pool": 524288,
+        "engine_info_ready": true,
+        "queued": 0,
+        "busy": false,
+        "in_flight": 0,
+        "busy_for_s": 0,
+        "decode": "greedy at explicit temperature 0; Qwen-default sampling (temp 1.0, top_k 20, top_p 0.95) when temperature is omitted; sampled at temperature > 0",
+        "prompt_cache": {
+          "enabled": false,
+          "cap_mb": 0
+        },
+        "tool_calls": {
+          "parsed": true,
+          "template_injection": true,
+          "wire_format": "qwen-xml (<function=>/<parameter=>)",
+          "streaming": true,
+          "tool_choice": [
+            "auto",
+            "none",
+            "required",
+            "named"
+          ],
+          "parallel_tool_calls": true,
+          "constrained_decoding": false
+        },
+        "vision": {
+          "accepted": true,
+          "chat_content_type": "image_url",
+          "responses_content_type": "input_image",
+          "inline_data_url": true,
+          "bare_base64": true,
+          "http_urls": false,
+          "formats": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "animated_webp": false,
+          "webp_decoder": "libwebp",
+          "webp_decoder_version": "1.6.0",
+          "max_images": 32,
+          "max_total_patches": 262144,
+          "max_visual_tokens": 65536,
+          "video": false,
+          "runtime": "native-cpp"
+        },
+        "supported": [
+          "reasoning_effort",
+          "enable_thinking",
+          "preserve_thinking",
+          "stop",
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens",
+          "stream",
+          "seed",
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "logit_bias",
+          "logprobs",
+          "tools",
+          "tool_choice",
+          "parallel_tool_calls",
+          "image_url",
+          "input_image",
+          "add_vision_id"
+        ],
+        "token_budget_aliases": [
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens"
+        ],
+        "max_tokens_default": "unbounded (budget = context minus prompt length)",
+        "error_format": "openai",
+        "accepted_but_ignored": [
+          "n",
+          "drafter"
+        ],
+        "partial": [],
+        "sampling": {
+          "implemented": [
+            "temperature",
+            "top_p",
+            "top_k",
+            "min_p",
+            "seed",
+            "presence_penalty",
+            "frequency_penalty",
+            "logit_bias",
+            "logprobs"
+          ]
+        },
+        "max_tokens_cap": null,
+        "reasoning_effort_values": [
+          "high",
+          "low",
+          "medium",
+          "minimal",
+          "xhigh"
+        ],
+        "server_overrides": {}
+      },
+      "native_arithmetic_and_sequence_passed": true,
+      "native_seeded_json_repeat_passed": true,
+      "speculative_counts": [
+        [
+          "0",
+          "2"
+        ],
+        [
+          "31",
+          "34"
+        ],
+        [
+          "3",
+          "6"
+        ],
+        [
+          "3",
+          "6"
+        ]
+      ],
+      "final_state": "stopped"
+    },
+    {
+      "profile": "Qwenox-qwen27",
+      "model": "qwen3.8-27b-hgn",
+      "backup_directory_name": "ht-dequant-reference-20261113T153342Z",
+      "engine_sha256": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+      "unchanged_config_sha256": "ea91065e2f0d47321bb77a1027a0b21e9bcb1169268d1627c58c97ac977d19c3",
+      "preserved_files_verified": 264,
+      "health": {
+        "status": "ok",
+        "model": "qwen3.8-27b-hgn",
+        "endpoints": [
+          "/v1/chat/completions",
+          "/v1/completions",
+          "/v1/models",
+          "/v1/messages",
+          "/v1/messages/count_tokens",
+          "/v1/tokenize",
+          "/v1/detokenize",
+          "/v1/responses",
+          "/dashboard",
+          "/reqstat/summary",
+          "/reqstat/tail",
+          "/metrics/live"
+        ],
+        "rope_scaling": null,
+        "context": 8192,
+        "slot_ctx": 8192,
+        "slots": 1,
+        "kv_pool": 8192,
+        "engine_info_ready": true,
+        "queued": 0,
+        "busy": false,
+        "in_flight": 0,
+        "busy_for_s": 0,
+        "decode": "greedy at explicit temperature 0; Qwen-default sampling (temp 1.0, top_k 20, top_p 0.95) when temperature is omitted; sampled at temperature > 0",
+        "prompt_cache": {
+          "enabled": false,
+          "cap_mb": 0
+        },
+        "tool_calls": {
+          "parsed": true,
+          "template_injection": true,
+          "wire_format": "qwen-xml (<function=>/<parameter=>)",
+          "streaming": true,
+          "tool_choice": [
+            "auto",
+            "none",
+            "required",
+            "named"
+          ],
+          "parallel_tool_calls": true,
+          "constrained_decoding": false
+        },
+        "vision": {
+          "accepted": false,
+          "chat_content_type": "image_url",
+          "responses_content_type": "input_image",
+          "inline_data_url": true,
+          "bare_base64": true,
+          "http_urls": false,
+          "formats": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "animated_webp": false,
+          "webp_decoder": "libwebp",
+          "webp_decoder_version": "1.6.0",
+          "max_images": 8,
+          "max_total_patches": 262144,
+          "max_visual_tokens": 65536,
+          "video": false,
+          "runtime": "native-cpp"
+        },
+        "supported": [
+          "reasoning_effort",
+          "enable_thinking",
+          "preserve_thinking",
+          "stop",
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens",
+          "stream",
+          "seed",
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "logit_bias",
+          "logprobs",
+          "tools",
+          "tool_choice",
+          "parallel_tool_calls"
+        ],
+        "token_budget_aliases": [
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens"
+        ],
+        "max_tokens_default": "unbounded (budget = context minus prompt length)",
+        "error_format": "openai",
+        "accepted_but_ignored": [
+          "n",
+          "drafter"
+        ],
+        "partial": [],
+        "sampling": {
+          "implemented": [
+            "temperature",
+            "top_p",
+            "top_k",
+            "min_p",
+            "seed",
+            "presence_penalty",
+            "frequency_penalty",
+            "logit_bias",
+            "logprobs"
+          ]
+        },
+        "max_tokens_cap": null,
+        "reasoning_effort_values": [
+          "high",
+          "low",
+          "medium",
+          "minimal",
+          "xhigh"
+        ],
+        "server_overrides": {}
+      },
+      "native_arithmetic_and_sequence_passed": true,
+      "native_seeded_json_repeat_passed": true,
+      "speculative_counts": [
+        [
+          "1",
+          "3"
+        ],
+        [
+          "37",
+          "39"
+        ],
+        [
+          "6",
+          "9"
+        ],
+        [
+          "6",
+          "9"
+        ]
+      ],
+      "final_state": "stopped"
+    }
+  ],
+  "finished_at": "2026-11-13T23:38:00.785628+08:00",
+  "remaining_known_issue": "Qwen27 adds Markdown fences in the JSON extraction case; baseline and candidate have identical tokens and logprobs. No new failures."
+}
