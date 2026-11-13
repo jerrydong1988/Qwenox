@@ -14,43 +14,7 @@ __device__ __forceinline__ void exact_fwht128(float (&v)[4],int lane) {
   const float a=v[0]+v[1],b=v[0]-v[1],c=v[2]+v[3],d=v[2]-v[3];
   v[0]=a+c;v[1]=b+d;v[2]=a-c;v[3]=b-d;
 }
-// Keep the reference's column-then-row transform and scale association.
-// Wave shuffles replace its 14 block barriers; arithmetic is unchanged.
-__global__ __launch_bounds__(256) void ht_dense_exact_streamed(
-    const uint8_t* codes,const float* su,const float* sv,uint16_t* out,int cols) {
-  __shared__ float tile[128*128];
-  const int tx=blockIdx.x%(cols/128),ty=blockIdx.x/(cols/128);
-  const uint32_t* packed=(const uint32_t*)(codes+(size_t)blockIdx.x*8192);
-  const int lane=threadIdx.x&31,wave=threadIdx.x>>5;
-  for(int it=0;it<8;++it){
-    int blk=it*8+wave,g=blk/8,q=blk%8;
-    uint32_t cur=packed[g*256+q*32+lane],prev=__shfl(cur,(lane+31)%32,32);
-    const int r=q*16+lane%16,c0=g*16+(lane/16)*8;
-    #pragma unroll
-    for(int j=0;j<8;++j){
-      uint16_t state=uint16_t(((uint64_t(prev)<<32)|cur)>>(28-4*j));
-      tile[r*128+((c0+j)^(r&31))]=cb(state);
-    }
-  }
-  __syncthreads();
-  for(int rr=0;rr<16;++rr){
-    const int r=wave*16+rr;float v[4];
-    #pragma unroll
-    for(int j=0;j<4;++j)v[j]=tile[r*128+((j*32+lane)^(r&31))];
-    exact_fwht128(v,lane);
-    #pragma unroll
-    for(int j=0;j<4;++j)tile[r*128+((j*32+lane)^(r&31))]=v[j];
-  }
-  __syncthreads();
-  for(int cc=0;cc<16;++cc){
-    const int c=wave*16+cc,C=tx*128+c;float v[4];
-    #pragma unroll
-    for(int j=0;j<4;++j){int r=j*32+lane;v[j]=tile[r*128+(c^(r&31))];}
-    exact_fwht128(v,lane);
-    #pragma unroll
-    for(int j=0;j<4;++j){int R=ty*128+j*32+lane;out[(size_t)R*cols+C]=bf(((v[j]*(1.f/128.f))*su[C])*sv[R]);}
-  }
-}
+
 template<int BT, int RW, bool StageX=false, int NW=8, int StageGroups=1, bool DirectQ=false, bool UniformRows=false, int JUnroll=4, int GridOrder=0>
 __global__ __launch_bounds__(NW*32) void expert_batch_exact_reuse(
     const uint8_t* __restrict__ q, const __half* __restrict__ scales,

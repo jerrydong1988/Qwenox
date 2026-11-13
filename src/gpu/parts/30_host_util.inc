@@ -1102,7 +1102,11 @@ static void v2_deq_bf16(const WView& w, uint16_t* out, hipStream_t st) {
   if (w.dtype == 16) {
     const unsigned tiles = (unsigned)((w.rows / 128) * (w.cols / 128));
     if (v2_exact_dense_decode())
-      hgnv2gpu::ht_dense_exact_streamed<<<tiles,256,0,st>>>(w.data,w.suh,w.svh,out,(int)w.cols);
+      // The streamed decoder sporadically corrupted individual BF16 weights
+      // under buffer reuse on gfx1151. Keep the exact column-then-row arithmetic
+      // with the conservative block-synchronized reference implementation.
+      hgnv2gpu::ht_dense<<<dim3(w.cols/128,w.rows/128),256,0,st>>>(
+          (const uint32_t*)w.data,w.su,w.sv,out,(int)w.cols);
     else
       k_ht_deq_bf16<<<tiles, 256, 0, st>>>(w.data, w.suh, w.svh, out, (int)w.cols);
   } else {
