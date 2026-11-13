@@ -114,6 +114,10 @@ struct PleUring {
     while (done < n) {
       unsigned shead = __atomic_load_n(sq_head, __ATOMIC_ACQUIRE);
       unsigned fill = 0, space = entries - (ltail - shead);
+      // The kernel may free SQ slots before completing reads. Bound all
+      // queued/in-flight requests so cold I/O cannot overflow the CQ.
+      const size_t inflight = sub - done;
+      space = inflight >= entries ? 0 : std::min<size_t>(space, entries - inflight);
       while (sub < n && fill < space) {
         unsigned idx = ltail & *sq_mask;
         io_uring_sqe* s = &sqes[idx];
@@ -130,8 +134,11 @@ struct PleUring {
         fill++;
       }
       if (fill) __atomic_store_n(sq_tail, ltail, __ATOMIC_RELEASE);
-      if ((int)syscall(__NR_io_uring_enter, fd, fill, 1,
-                       IORING_ENTER_GETEVENTS, nullptr, 0) < 0) {
+      // Include requests left in the SQ by a short or interrupted submission.
+      const unsigned pending = ltail - __atomic_load_n(sq_head, __ATOMIC_ACQUIRE);
+      if ((int)syscall(__NR_io_uring_enter, fd, pending, 1,
+                       IORING_ENTER_GETEVENTS, nullptr, 0) < 0 &&
+          errno != EINTR) {
         fprintf(stderr, "ple_uring: io_uring_enter failed: %s\n",
                 strerror(errno));
         abort();
@@ -1096,7 +1103,7 @@ __global__ void k_index_select(const float* scores, int stride, int* selected,
                                 int first, const int* pos = nullptr) {
   using TopSort = rocprim::block_radix_sort<uint64_t, 256, Items>;
   using IdSort = rocprim::block_radix_sort<int, 256, 2>;
-  __shared__ union { typename TopSort::storage_type top; IdSort::storage_type ids; } storage;
+  __shared__ union { typename TopSort::storage_type top; typename IdSort::storage_type ids; } storage;
   __shared__ uint64_t best[512];
   int q = blockIdx.x, t = pos ? *pos : first + q, n = (t + 1) / 4;
   int tid = threadIdx.x;
