@@ -1,0 +1,188 @@
+{
+  "base_commit": "0a7d69a0302e0dc0bf7d36d62ea8107aa6ad14c7",
+  "code_commit": "7ac7628",
+  "official_head": "106f2ae6bb95a21c8c466e1a2ccc5e8532d55e7a",
+  "official_new_commits": 16,
+  "accepted_upstream": [
+    "5d3966a",
+    "0acd2ee",
+    "d2c620f"
+  ],
+  "confidence_gate_merged": false,
+  "builds": {
+    "source_validation_sdk": "10.3.0a20261111",
+    "deployment_sdk": "10.0.0",
+    "deployment_clang": "23.0.0git / 8f497e0992fb7513f7f78a6f6b6f1056c375e961",
+    "deployment_engine_sha256": "6d9e73500e0484b5e12a1c0175445a6e9b890108482b5177099ae66ce79fd3bf",
+    "deployment_launcher_sha256": "2285f416411abd50ff96a5079947b34eb8d51ca575844c9bc24850b0be0d54ee",
+    "msvc_compat_cmath_sha256": "76041d3c42bafc9a76b5ad5473e470f89d714ddc7de0fd598db06f152dedfa6c",
+    "deployment_launcher_clang": "24.0.0git / ROCm SDK 10.3.0a20261111"
+  },
+  "checks": {
+    "flash_cli_missing_value": 26,
+    "windows_iocp": 21,
+    "uring_simulation": 4,
+    "uring_baseline_overflow_reproduced": true,
+    "candidate_gpu": 56,
+    "native_and_shell_host_config": "pass",
+    "linux_kernel_runtime_tested": false,
+    "final_source_flash_requests": 14,
+    "final_source_qwen27_requests": 8
+  },
+  "sampling_repeatability": {
+    "old_flash_repeated_run_differences": [
+      "sample-1"
+    ],
+    "old_flash_repeat_vs_deployment_candidate": "all tokens and returned logprobs match",
+    "qwen27_old_vs_deployment_candidate": "all tokens and returned logprobs match",
+    "existing_flash_variation_root_cause": "not identified"
+  },
+  "runs": {
+    "flash-base": {
+      "requests": 14,
+      "tokens_logprobs_sha256": "6a139e9a9191b35c74b0f5a38151c261daef064d671179a37e9b0f537a1c02fb",
+      "mtp_decode_ms": 4116.3
+    },
+    "flash-off": {
+      "requests": 14,
+      "tokens_logprobs_sha256": "6a139e9a9191b35c74b0f5a38151c261daef064d671179a37e9b0f537a1c02fb",
+      "mtp_decode_ms": 4118.9
+    },
+    "flash-gate05": {
+      "requests": 14,
+      "tokens_logprobs_sha256": "6a139e9a9191b35c74b0f5a38151c261daef064d671179a37e9b0f537a1c02fb",
+      "mtp_decode_ms": 4117.7
+    },
+    "flash-gate09": {
+      "requests": 14,
+      "tokens_logprobs_sha256": "6a139e9a9191b35c74b0f5a38151c261daef064d671179a37e9b0f537a1c02fb",
+      "mtp_decode_ms": 4182.9
+    },
+    "flash-gate09-sync": {
+      "requests": 14,
+      "tokens_logprobs_sha256": "6a139e9a9191b35c74b0f5a38151c261daef064d671179a37e9b0f537a1c02fb",
+      "mtp_decode_ms": 4211.9
+    },
+    "q27-base": {
+      "requests": 8,
+      "tokens_logprobs_sha256": "e09c913c829c438131c3fab66b1113601de1cee9260280f435c19f872062901d",
+      "mtp_decode_ms": 10088.96
+    },
+    "q27-candidate": {
+      "requests": 8,
+      "tokens_logprobs_sha256": "e09c913c829c438131c3fab66b1113601de1cee9260280f435c19f872062901d",
+      "mtp_decode_ms": 10106.69
+    },
+    "flash-final": {
+      "requests": 14,
+      "tokens_logprobs_sha256": "6a139e9a9191b35c74b0f5a38151c261daef064d671179a37e9b0f537a1c02fb",
+      "mtp_decode_ms": 4129.6
+    },
+    "q27-final": {
+      "requests": 8,
+      "tokens_logprobs_sha256": "e09c913c829c438131c3fab66b1113601de1cee9260280f435c19f872062901d",
+      "mtp_decode_ms": 10062.88
+    },
+    "flash-old": {
+      "requests": 14,
+      "tokens_logprobs_sha256": "f0377a595387420cf4fffeb482ede4ccb8ee371ceac1334fc07d8785ae701505",
+      "mtp_decode_ms": 4168.7
+    },
+    "flash-old-repeat": {
+      "requests": 14,
+      "tokens_logprobs_sha256": "6a139e9a9191b35c74b0f5a38151c261daef064d671179a37e9b0f537a1c02fb",
+      "mtp_decode_ms": 4124.1
+    },
+    "flash-ready10": {
+      "requests": 14,
+      "tokens_logprobs_sha256": "6a139e9a9191b35c74b0f5a38151c261daef064d671179a37e9b0f537a1c02fb",
+      "mtp_decode_ms": 4134.1
+    },
+    "q27-old": {
+      "requests": 8,
+      "tokens_logprobs_sha256": "e09c913c829c438131c3fab66b1113601de1cee9260280f435c19f872062901d",
+      "mtp_decode_ms": 10345.42
+    },
+    "q27-ready10": {
+      "requests": 8,
+      "tokens_logprobs_sha256": "e09c913c829c438131c3fab66b1113601de1cee9260280f435c19f872062901d",
+      "mtp_decode_ms": 10074.83
+    }
+  },
+  "deployments": [
+    {
+      "deployment": "C:\\Users\\Jerry\\llama.cpp\\Qwenox",
+      "backup": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\backups\\upstream-priority-20261113T054908Z",
+      "model": "qwen3.8-flash-next",
+      "engine_sha256": "6d9e73500e0484b5e12a1c0175445a6e9b890108482b5177099ae66ce79fd3bf",
+      "launcher_sha256": "2285f416411abd50ff96a5079947b34eb8d51ca575844c9bc24850b0be0d54ee",
+      "configuration_sha256": "d5202a2c2e2e5e95ac6468d30b8bb14a375b2ecf29c890f613d3ddbb74f33536",
+      "api_responses": [
+        {
+          "content": "42",
+          "usage": {
+            "prompt_tokens": 30,
+            "completion_tokens": 2,
+            "total_tokens": 32
+          }
+        },
+        {
+          "content": "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20",
+          "usage": {
+            "prompt_tokens": 32,
+            "completion_tokens": 50,
+            "total_tokens": 82
+          }
+        }
+      ],
+      "speculative_counts": [
+        [
+          "0",
+          "2"
+        ],
+        [
+          "31",
+          "34"
+        ]
+      ],
+      "retained_files_verified": 270
+    },
+    {
+      "deployment": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27",
+      "backup": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27\\backups\\upstream-priority-20261113T054908Z",
+      "model": "qwen3.8-27b-hgn",
+      "engine_sha256": "6d9e73500e0484b5e12a1c0175445a6e9b890108482b5177099ae66ce79fd3bf",
+      "launcher_sha256": "2285f416411abd50ff96a5079947b34eb8d51ca575844c9bc24850b0be0d54ee",
+      "configuration_sha256": "ea91065e2f0d47321bb77a1027a0b21e9bcb1169268d1627c58c97ac977d19c3",
+      "api_responses": [
+        {
+          "content": "42",
+          "usage": {
+            "prompt_tokens": 30,
+            "completion_tokens": 2,
+            "total_tokens": 32
+          }
+        },
+        {
+          "content": "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20",
+          "usage": {
+            "prompt_tokens": 32,
+            "completion_tokens": 50,
+            "total_tokens": 82
+          }
+        }
+      ],
+      "speculative_counts": [
+        [
+          "1",
+          "3"
+        ],
+        [
+          "37",
+          "39"
+        ]
+      ],
+      "retained_files_verified": 263
+    }
+  ]
+}
