@@ -1,0 +1,105 @@
+{
+  "date": "2026-11-15",
+  "base": "be74babbb0f53c96a678f4b5e3d9b0faf9ff2907",
+  "tests": {
+    "launcher_management": 50,
+    "telemetry_bridge": 18,
+    "telemetry_semantics": 20
+  },
+  "actual_inference": {
+    "metrics-live-validation": {
+      "samples": 45,
+      "phases": {
+        "prefill": 2,
+        "decode": 43
+      },
+      "max_output_counter": 1018,
+      "completion_tokens": 1024
+    },
+    "metrics-live-validation-final": {
+      "samples": 46,
+      "phases": {
+        "prefill": 1,
+        "decode": 44
+      },
+      "max_output_counter": 1019,
+      "completion_tokens": 1024
+    }
+  },
+  "web_sha256": "4e71cf7229e3607749e46e5b2805bd089a4ee80acdecf22143db83d6b17d87f7",
+  "deployed_files_unchanged": true,
+  "gpu_kernels_changed": false,
+  "daily_deployments": [
+    {
+      "root": "C:\\Users\\Jerry\\llama.cpp\\Qwenox",
+      "files": {
+        "service.conf": "d5202a2c2e2e5e95ac6468d30b8bb14a375b2ecf29c890f613d3ddbb74f33536",
+        "start_win.exe": "2285f416411abd50ff96a5079947b34eb8d51ca575844c9bc24850b0be0d54ee",
+        "build/gdec-win.exe": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+        "build/qwenox-engine-win.exe": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+        "build/qwenox-win.exe": "1f63b9ebd2fdf72a53e6fffc26e1efe115f2731122c3764122f719c3758fb955",
+        "build/amdhip64_7.dll": "546fb3d6e2d2194a9526fb94ec2fd3aa5b92a48a7595f04efece80162047ef69"
+      }
+    },
+    {
+      "root": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27",
+      "files": {
+        "service.conf": "ea91065e2f0d47321bb77a1027a0b21e9bcb1169268d1627c58c97ac977d19c3",
+        "start_win.exe": "2285f416411abd50ff96a5079947b34eb8d51ca575844c9bc24850b0be0d54ee",
+        "build/gdec-win.exe": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+        "build/qwenox-engine-win.exe": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+        "build/qwenox-win.exe": "1f63b9ebd2fdf72a53e6fffc26e1efe115f2731122c3764122f719c3758fb955",
+        "build/amdhip64_7.dll": "546fb3d6e2d2194a9526fb94ec2fd3aa5b92a48a7595f04efece80162047ef69"
+      }
+    }
+  ],
+  "browser": {
+    "desktop": [
+      1383,
+      1243
+    ],
+    "compact": [
+      1024,
+      768
+    ],
+    "mobile_viewport": [
+      390,
+      844
+    ],
+    "horizontal_document_overflow": false,
+    "console_errors": 0,
+    "profile_switch_keeps_active_model": true,
+    "invalid_draft_blocked": true,
+    "native_dialog_focus_wrap_and_restore": true,
+    "unavailable_metrics_show_null_not_zero": true,
+    "external_engine_stop_not_permitted": true
+  },
+  "preview": "http://127.0.0.1:19859/",
+  "preview_runtime": "C:\\Users\\Jerry\\Projects\\qwenox-launcher-redesign-20261115\\build\\ui-runtime",
+  "preview_context": 8192,
+  "limits": [
+    "Windows only; Linux telemetry bridge reports unsupported",
+    "History totals span profiles in one runtime directory",
+    "No GPU memory-detail redesign; full deployed console remains linked",
+    "No production deployment replaced"
+  ],
+  "review": {
+    "disposition": "ship",
+    "resolved": [
+      "missing telemetry no longer asserts zero active requests",
+      "native named dialogs contain keyboard focus and restore it"
+    ],
+    "detector_findings": 0
+  },
+  "cleanup": {
+    "preview_server_kept": 19859,
+    "test_engine_api_stopped": [
+      19860,
+      19861
+    ],
+    "missing_metrics_fixture_stopped": [
+      19868,
+      19869
+    ]
+  }
+}

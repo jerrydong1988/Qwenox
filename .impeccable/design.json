@@ -1,0 +1,426 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-15T13:28:00.296485Z",
+  "title": "Design System: Qwenox Launcher",
+  "extensions": {
+    "colorMeta": {
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.0102 257.53)",
+          "oklch(26.43% 0.0180 257.53)",
+          "oklch(37.86% 0.0258 257.53)",
+          "oklch(49.29% 0.0273 257.53)",
+          "oklch(60.71% 0.0273 257.53)",
+          "oklch(72.14% 0.0273 257.53)",
+          "oklch(83.57% 0.0179 257.53)",
+          "oklch(95.00% 0.0055 257.53)"
+        ]
+      },
+      "dim": {
+        "role": "neutral",
+        "displayName": "Secondary Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.0123 256.55)",
+          "oklch(26.43% 0.0217 256.55)",
+          "oklch(37.86% 0.0311 256.55)",
+          "oklch(49.29% 0.0329 256.55)",
+          "oklch(60.71% 0.0329 256.55)",
+          "oklch(72.14% 0.0329 256.55)",
+          "oklch(83.57% 0.0216 256.55)",
+          "oklch(95.00% 0.0066 256.55)"
+        ]
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "Quiet Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.0126 257.79)",
+          "oklch(26.43% 0.0222 257.79)",
+          "oklch(37.86% 0.0318 257.79)",
+          "oklch(49.29% 0.0337 257.79)",
+          "oklch(60.71% 0.0337 257.79)",
+          "oklch(72.14% 0.0337 257.79)",
+          "oklch(83.57% 0.0221 257.79)",
+          "oklch(95.00% 0.0067 257.79)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Fine Divider",
+        "tonalRamp": [
+          "oklch(15.00% 0.0035 258.34)",
+          "oklch(26.43% 0.0061 258.34)",
+          "oklch(37.86% 0.0087 258.34)",
+          "oklch(49.29% 0.0092 258.34)",
+          "oklch(60.71% 0.0092 258.34)",
+          "oklch(72.14% 0.0092 258.34)",
+          "oklch(83.57% 0.0060 258.34)",
+          "oklch(95.00% 0.0018 258.34)"
+        ]
+      },
+      "line2": {
+        "role": "neutral",
+        "displayName": "Control Outline",
+        "tonalRamp": [
+          "oklch(15.00% 0.0073 255.55)",
+          "oklch(26.43% 0.0129 255.55)",
+          "oklch(37.86% 0.0185 255.55)",
+          "oklch(49.29% 0.0196 255.55)",
+          "oklch(60.71% 0.0196 255.55)",
+          "oklch(72.14% 0.0196 255.55)",
+          "oklch(83.57% 0.0129 255.55)",
+          "oklch(95.00% 0.0039 255.55)"
+        ]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "Workspace White",
+        "tonalRamp": [
+          "oklch(15.00% 0.0000 0.00)",
+          "oklch(26.43% 0.0000 0.00)",
+          "oklch(37.86% 0.0000 0.00)",
+          "oklch(49.29% 0.0000 0.00)",
+          "oklch(60.71% 0.0000 0.00)",
+          "oklch(72.14% 0.0000 0.00)",
+          "oklch(83.57% 0.0000 0.00)",
+          "oklch(95.00% 0.0000 0.00)"
+        ]
+      },
+      "card2": {
+        "role": "neutral",
+        "displayName": "Cool Rail",
+        "tonalRamp": [
+          "oklch(15.00% 0.0017 258.32)",
+          "oklch(26.43% 0.0030 258.32)",
+          "oklch(37.86% 0.0043 258.32)",
+          "oklch(49.29% 0.0045 258.32)",
+          "oklch(60.71% 0.0045 258.32)",
+          "oklch(72.14% 0.0045 258.32)",
+          "oklch(83.57% 0.0030 258.32)",
+          "oklch(95.00% 0.0009 258.32)"
+        ]
+      },
+      "inp": {
+        "role": "neutral",
+        "displayName": "Field White",
+        "tonalRamp": [
+          "oklch(15.00% 0.0000 0.00)",
+          "oklch(26.43% 0.0000 0.00)",
+          "oklch(37.86% 0.0000 0.00)",
+          "oklch(49.29% 0.0000 0.00)",
+          "oklch(60.71% 0.0000 0.00)",
+          "oklch(72.14% 0.0000 0.00)",
+          "oklch(83.57% 0.0000 0.00)",
+          "oklch(95.00% 0.0000 0.00)"
+        ]
+      },
+      "hover": {
+        "role": "neutral",
+        "displayName": "Hover Grey",
+        "tonalRamp": [
+          "oklch(15.00% 0.0030 253.85)",
+          "oklch(26.43% 0.0053 253.85)",
+          "oklch(37.86% 0.0075 253.85)",
+          "oklch(49.29% 0.0080 253.85)",
+          "oklch(60.71% 0.0080 253.85)",
+          "oklch(72.14% 0.0080 253.85)",
+          "oklch(83.57% 0.0052 253.85)",
+          "oklch(95.00% 0.0016 253.85)"
+        ]
+      },
+      "sel": {
+        "role": "primary",
+        "displayName": "Pale Selection",
+        "tonalRamp": [
+          "oklch(15.00% 0.0069 258.35)",
+          "oklch(26.43% 0.0121 258.35)",
+          "oklch(37.86% 0.0173 258.35)",
+          "oklch(49.29% 0.0183 258.35)",
+          "oklch(60.71% 0.0183 258.35)",
+          "oklch(72.14% 0.0183 258.35)",
+          "oklch(83.57% 0.0120 258.35)",
+          "oklch(95.00% 0.0037 258.35)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Selection Blue",
+        "tonalRamp": [
+          "oklch(15.00% 0.0631 258.23)",
+          "oklch(26.43% 0.1111 258.23)",
+          "oklch(37.86% 0.1592 258.23)",
+          "oklch(49.29% 0.1682 258.23)",
+          "oklch(60.71% 0.1682 258.23)",
+          "oklch(72.14% 0.1682 258.23)",
+          "oklch(83.57% 0.1105 258.23)",
+          "oklch(95.00% 0.0336 258.23)"
+        ]
+      },
+      "btn": {
+        "role": "primary",
+        "displayName": "Action Blue",
+        "tonalRamp": [
+          "oklch(15.00% 0.0610 257.68)",
+          "oklch(26.43% 0.1074 257.68)",
+          "oklch(37.86% 0.1539 257.68)",
+          "oklch(49.29% 0.1626 257.68)",
+          "oklch(60.71% 0.1626 257.68)",
+          "oklch(72.14% 0.1626 257.68)",
+          "oklch(83.57% 0.1068 257.68)",
+          "oklch(95.00% 0.0325 257.68)"
+        ]
+      },
+      "btn-hi": {
+        "role": "primary",
+        "displayName": "Pressed Blue",
+        "tonalRamp": [
+          "oklch(15.00% 0.0507 257.68)",
+          "oklch(26.43% 0.0893 257.68)",
+          "oklch(37.86% 0.1280 257.68)",
+          "oklch(49.29% 0.1352 257.68)",
+          "oklch(60.71% 0.1352 257.68)",
+          "oklch(72.14% 0.1352 257.68)",
+          "oklch(83.57% 0.0889 257.68)",
+          "oklch(95.00% 0.0270 257.68)"
+        ]
+      },
+      "ok": {
+        "role": "semantic",
+        "displayName": "Running Green",
+        "tonalRamp": [
+          "oklch(15.00% 0.0439 154.08)",
+          "oklch(26.43% 0.0774 154.08)",
+          "oklch(37.86% 0.1109 154.08)",
+          "oklch(49.29% 0.1172 154.08)",
+          "oklch(60.71% 0.1172 154.08)",
+          "oklch(72.14% 0.1172 154.08)",
+          "oklch(83.57% 0.0770 154.08)",
+          "oklch(95.00% 0.0234 154.08)"
+        ]
+      },
+      "bad": {
+        "role": "semantic",
+        "displayName": "Error Red",
+        "tonalRamp": [
+          "oklch(15.00% 0.0660 22.02)",
+          "oklch(26.43% 0.1163 22.02)",
+          "oklch(37.86% 0.1666 22.02)",
+          "oklch(49.29% 0.1760 22.02)",
+          "oklch(60.71% 0.1760 22.02)",
+          "oklch(72.14% 0.1760 22.02)",
+          "oklch(83.57% 0.1157 22.02)",
+          "oklch(95.00% 0.0352 22.02)"
+        ]
+      },
+      "warn": {
+        "role": "semantic",
+        "displayName": "Attention Amber",
+        "tonalRamp": [
+          "oklch(15.00% 0.0400 71.27)",
+          "oklch(26.43% 0.0705 71.27)",
+          "oklch(37.86% 0.1010 71.27)",
+          "oklch(49.29% 0.1067 71.27)",
+          "oklch(60.71% 0.1067 71.27)",
+          "oklch(72.14% 0.1067 71.27)",
+          "oklch(83.57% 0.0701 71.27)",
+          "oklch(95.00% 0.0213 71.27)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Model Heading",
+        "purpose": "The selected or active model, wrapping when needed."
+      },
+      "title": {
+        "displayName": "Section Title",
+        "purpose": "Operational and settings section headings."
+      },
+      "body": {
+        "displayName": "Application Body",
+        "purpose": "Compact Segoe UI application text."
+      },
+      "label": {
+        "displayName": "Supporting Label",
+        "purpose": "Status, field help and table text."
+      },
+      "control": {
+        "displayName": "Control Text",
+        "purpose": "Buttons and text inputs."
+      },
+      "measurement": {
+        "displayName": "Live Measurement",
+        "purpose": "Tabular live values, not promotional display typography."
+      },
+      "log": {
+        "displayName": "Technical Log",
+        "purpose": "Monospaced runtime output."
+      }
+    },
+    "shadows": [
+      {
+        "name": "dialog",
+        "value": "0 18px 60px #1420373d",
+        "purpose": "Standard modal and file-browser cards."
+      },
+      {
+        "name": "toast",
+        "value": "0 5px 20px #1a273520",
+        "purpose": "Transient success or error feedback."
+      }
+    ],
+    "motion": [
+      {
+        "name": "switch-thumb",
+        "value": "left .15s",
+        "purpose": "Switch thumb travel; disabled under prefers-reduced-motion: reduce."
+      },
+      {
+        "name": "button-press",
+        "value": "transform: translateY(1px)",
+        "purpose": "Immediate active-state feedback, removed when disabled."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "transition: none !important; animation: none !important",
+        "purpose": "Applied to all elements and pseudo-elements when reduced motion is requested."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact",
+        "value": "1100px"
+      },
+      {
+        "name": "mobile",
+        "value": "760px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Filled blue for launch and primary confirmation.",
+      "html": "<button class=\"ds-button ds-primary\">Start model</button>",
+      "css": ".ds-button{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);border:1px solid transparent;border-radius:5px;padding:7px 14px;font-size:13px;line-height:1.4;cursor:pointer;white-space:nowrap;min-height:33px}.ds-button:focus-visible{outline:2px solid var(--accent,#185fc1);outline-offset:3px}.ds-button:active{transform:translateY(1px)}.ds-button:disabled{opacity:.45;cursor:not-allowed;transform:none}.ds-primary{background:var(--btn,#1b61bf);color:#fff}.ds-primary:hover{background:var(--btn-hi,#174e99)}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Outlined utility actions and dialog cancellation.",
+      "html": "<button class=\"ds-button ds-secondary\">Model settings</button>",
+      "css": ".ds-button{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);border:1px solid transparent;border-radius:5px;padding:7px 14px;font-size:13px;line-height:1.4;cursor:pointer;white-space:nowrap;min-height:33px}.ds-button:focus-visible{outline:2px solid var(--accent,#185fc1);outline-offset:3px}.ds-button:active{transform:translateY(1px)}.ds-button:disabled{opacity:.45;cursor:not-allowed;transform:none}.ds-secondary{border-color:var(--line2,#bac3cf);background:var(--card,#fff);color:var(--ink,#202936)}.ds-secondary:hover{background:var(--hover,#edf1f6)}"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Red-text destructive actions with explicit labels.",
+      "html": "<button class=\"ds-button ds-danger\">Discard changes</button>",
+      "css": ".ds-button{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);border:1px solid transparent;border-radius:5px;padding:7px 14px;font-size:13px;line-height:1.4;cursor:pointer;white-space:nowrap;min-height:33px}.ds-button:focus-visible{outline:2px solid var(--accent,#185fc1);outline-offset:3px}.ds-button:active{transform:translateY(1px)}.ds-button:disabled{opacity:.45;cursor:not-allowed;transform:none}.ds-danger{color:var(--bad,#bc303a);border-color:#e7bdc1;background:#fff}.ds-danger:hover{background:#fff0f1}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "text-input",
+      "description": "Human-readable label, editable value and local helper text.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-name\">Model path</span><input class=\"ds-input\" type=\"text\" placeholder=\"Select a model file\"><span class=\"ds-help\">Applied on the next start.</span></label>",
+      "css": ".ds-field{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);display:grid;gap:5px;color:var(--ink,#202936);max-width:360px}.ds-field-name{font-size:13px;font-weight:600}.ds-input{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);color:var(--ink,#202936);background:var(--inp,#fff);border:1px solid var(--line2,#bac3cf);border-radius:4px;padding:7px 9px;font-size:13px;line-height:1.4;min-width:100px;caret-color:var(--accent,#185fc1)}.ds-input::placeholder{color:var(--faint,#647184)}.ds-input:focus{outline:2px solid #cadcf7;outline-offset:1px;border-color:var(--accent,#185fc1)}.ds-input:disabled{background:#f1f3f5;color:var(--faint,#647184)}.ds-help{font-size:12px;color:var(--dim,#596678)}"
+    },
+    {
+      "name": "Workspace Tabs",
+      "kind": "nav",
+      "refersTo": "tab-selected",
+      "description": "Horizontal application pages with an underlined current page.",
+      "html": "<nav class=\"ds-tabs\" aria-label=\"Launcher pages\"><button class=\"ds-tab ds-current\" aria-current=\"page\">Overview</button><button class=\"ds-tab\">Model</button><button class=\"ds-tab\">Inference</button></nav>",
+      "css": ".ds-tabs{display:flex;gap:3px;border-bottom:1px solid var(--line,#e2e6ec);min-height:52px;overflow-x:auto}.ds-tab{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);border:0;border-bottom:2px solid transparent;background:transparent;color:var(--dim,#596678);padding:13px 12px 11px;cursor:pointer;font-size:13px;font-weight:500;white-space:nowrap}.ds-tab:hover{color:var(--ink,#202936);background:#f8fafc}.ds-tab.ds-current{color:var(--accent,#185fc1);border-bottom-color:var(--accent,#185fc1);font-weight:600}.ds-tab:focus-visible{outline:2px solid var(--accent,#185fc1);outline-offset:3px}"
+    },
+    {
+      "name": "Selected Chip",
+      "kind": "chip",
+      "refersTo": "chip-selected",
+      "description": "Compact selected parameter choice.",
+      "html": "<button class=\"ds-chip\" aria-pressed=\"true\">Automatic</button>",
+      "css": ".ds-chip{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);border:1px solid #a8c5ef;background:var(--sel,#e8f0fc);color:var(--accent,#185fc1);border-radius:4px;padding:4px 8px;font-size:12px;cursor:pointer}.ds-chip:hover{border-color:var(--accent,#185fc1)}.ds-chip:focus-visible{outline:2px solid var(--accent,#185fc1);outline-offset:3px}"
+    },
+    {
+      "name": "Selected Profile",
+      "kind": "card",
+      "refersTo": "profile-selected",
+      "description": "Saved-model selection on the cool profile rail.",
+      "html": "<div class=\"ds-rail\"><div class=\"ds-profile\" role=\"button\" tabindex=\"0\" aria-pressed=\"true\"><div class=\"ds-profile-name\">Flash HGN <span class=\"ds-tag\">Running</span></div><div class=\"ds-profile-summary\">Local model profile</div><div class=\"ds-profile-file\">flash-hgn.json</div></div></div>",
+      "css": ".ds-rail{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);background:var(--card2,#f5f7fa);padding:10px;max-width:240px}.ds-profile{padding:12px;border:1px solid #c5d8f4;border-radius:6px;cursor:pointer;background:var(--sel,#e8f0fc);color:var(--ink,#202936)}.ds-profile:hover{background:var(--sel,#e8f0fc)}.ds-profile:focus-visible{outline:2px solid var(--accent,#185fc1);outline-offset:3px}.ds-profile-name{font-size:13px;font-weight:600;display:flex;align-items:center;gap:5px}.ds-tag{font-size:10px;padding:0 4px;border-radius:3px;font-weight:400;color:var(--ok,#187744);background:#dff0e5}.ds-profile-summary{font-size:12px;margin-top:4px;color:var(--dim,#596678)}.ds-profile-file{font-size:11px;line-height:1.5;margin-top:2px;color:var(--faint,#647184)}"
+    },
+    {
+      "name": "Unavailable Measurement",
+      "kind": "custom",
+      "refersTo": "measurement",
+      "description": "Missing telemetry is an em dash, with units and explanatory text retained.",
+      "html": "<div class=\"ds-measurement\"><div class=\"ds-measure-label\">Live generation</div><div class=\"ds-measure-value\">—<small>token/s</small></div><div class=\"ds-measure-hint\">All active requests</div></div>",
+      "css": ".ds-measurement{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);color:var(--ink,#202936)}.ds-measure-label{font-size:12px;color:var(--dim,#596678);margin-bottom:7px}.ds-measure-value{font-size:26px;line-height:1.3;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.02em}.ds-measure-value small{font-size:11px;font-weight:400;color:var(--dim,#596678);letter-spacing:0;margin-left:5px}.ds-measure-hint{font-size:11px;color:var(--dim,#596678);margin-top:5px}@media(max-width:1100px){.ds-measure-value{font-size:23px}}@media(max-width:760px){.ds-measure-value{font-size:25px}}"
+    },
+    {
+      "name": "Service State",
+      "kind": "custom",
+      "refersTo": "status-running",
+      "description": "A coloured dot paired with a readable state label.",
+      "html": "<span class=\"ds-state\"><span class=\"ds-dot\" aria-hidden=\"true\"></span><span class=\"ds-state-label\">Running</span><span class=\"ds-state-detail\">Local API ready</span></span>",
+      "css": ".ds-state{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);display:flex;align-items:center;gap:7px;font-size:12px}.ds-dot{width:7px;height:7px;border-radius:50%;background:var(--ok,#187744);flex-shrink:0}.ds-state-label{color:var(--ok,#187744);font-weight:600;white-space:nowrap}.ds-state-detail{color:var(--dim,#596678);max-width:230px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}"
+    },
+    {
+      "name": "Profile Dialog",
+      "kind": "custom",
+      "refersTo": "dialog",
+      "description": "Static preview of the native dialog card; the launcher opens it modally and manages focus.",
+      "html": "<dialog class=\"ds-dialog\" open aria-labelledby=\"ds-dialog-title\"><div class=\"ds-dialog-card\"><h4 id=\"ds-dialog-title\">New profile</h4><div class=\"ds-dialog-body\">Choose a name for this model configuration.</div><input class=\"ds-dialog-input\" aria-label=\"Profile name\" value=\"Flash HGN\"><div class=\"ds-dialog-actions\"><button class=\"ds-button ds-secondary\">Cancel</button><button class=\"ds-button ds-primary\">Save</button></div></div></dialog>",
+      "css": ".ds-button{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);border:1px solid transparent;border-radius:5px;padding:7px 14px;font-size:13px;line-height:1.4;cursor:pointer;white-space:nowrap;min-height:33px}.ds-button:focus-visible{outline:2px solid var(--accent,#185fc1);outline-offset:3px}.ds-button:active{transform:translateY(1px)}.ds-button:disabled{opacity:.45;cursor:not-allowed;transform:none}.ds-dialog{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);position:relative;inset:auto;margin:0;padding:16px;border:0;background:#101b2f5e;color:var(--ink,#202936)}.ds-dialog-card{width:min(460px,92vw);background:#fff;border-radius:10px;box-shadow:0 18px 60px #1420373d;padding:24px}.ds-dialog-card h4{margin:0 0 10px;font-size:17px}.ds-dialog-body{font-size:13px;color:var(--dim,#596678);margin-bottom:16px}.ds-dialog-input{font-family:var(--ui,\"Segoe UI\",\"Microsoft YaHei\",system-ui,sans-serif);width:100%;min-width:100px;max-width:100%;background:var(--inp,#fff);color:var(--ink,#202936);border:1px solid var(--line2,#bac3cf);border-radius:4px;padding:7px 9px;font-size:13px;line-height:1.4}.ds-dialog-input:focus{outline:2px solid #cadcf7;outline-offset:1px;border-color:var(--accent,#185fc1)}.ds-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px;flex-wrap:wrap}.ds-secondary{border-color:var(--line2,#bac3cf);background:var(--card,#fff);color:var(--ink,#202936)}.ds-secondary:hover{background:var(--hover,#edf1f6)}.ds-primary{background:var(--btn,#1b61bf);color:#fff}.ds-primary:hover{background:var(--btn-hi,#174e99)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Practical Desktop Launcher",
+    "overview": "Qwenox is a familiar Windows utility: a white workspace, a cool grey profile rail, readable dark labels and restrained blue controls. Compact Segoe UI typography supports repeated operational use. Visual emphasis comes from state, selection and measured values rather than decoration.\n\nThis system applies only to the embedded launcher in src/launcher_static. It does not establish the design of the separate inference API dashboard. The user has confirmed a professional launcher with no anime imagery or decorative wallpaper; the implementation is code-led and ships no ornamental raster assets.",
+    "keyCharacteristics": [
+      "Light working surfaces with a cool profile rail.",
+      "Blue actions and selection; semantic colours for service state.",
+      "Compact Windows typography with tabular numerical measurements.",
+      "Flat workspace panels, with elevation reserved for transient feedback.",
+      "Clear separation between a selected profile and the running service."
+    ],
+    "rules": [
+      {
+        "name": "The Action and State Rule",
+        "body": "Use blue for interaction and selection. Reserve green, amber and red for operational state, validation and feedback; pair them with text.",
+        "section": "colors"
+      },
+      {
+        "name": "The Measured Value Rule",
+        "body": "Use tabular numerals for measurements and numerical tables. Show an em dash when a value is unavailable; only measured zero is displayed as zero.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Workspace Rule",
+        "body": "Use borders and tonal separation for persistent surfaces. Reserve shadows for dialogs and toasts.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use the source colour roles and preserve their readable contrast on light surfaces.",
+      "Do keep launch actions and runtime observations easy to find, with configuration on its own tabs.",
+      "Do label live measurements, estimated prefill and historical statistics distinctly.",
+      "Do keep the running model and endpoint visible when a different profile is selected for the next start.",
+      "Do preserve visible focus, native dialog modality, Escape dismissal and focus restoration.",
+      "Do let the profile rail, measurement grid and form rows reflow at the implemented breakpoints."
+    ],
+    "donts": [
+      "Don't add anime characters, decorative wallpaper or ornamental raster imagery to the launcher.",
+      "Don't substitute zero for unavailable telemetry or draw continuous throughput across missing samples.",
+      "Don't turn every workspace section into a raised card.",
+      "Don't make the separate API dashboard inherit this launcher-scoped document without a separate design decision."
+    ]
+  }
+}

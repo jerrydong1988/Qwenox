@@ -391,7 +391,7 @@ struct HttpReply {
 #ifdef _WIN32
 HttpReply http_call(const std::string& method, const std::string& host, int port,
                     const std::string& path, const std::string& body,
-                    int timeout_ms) {
+                    int timeout_ms, size_t max_response_bytes = 8u * 1024 * 1024) {
     HttpReply r;
     sockaddr_in addr{};
     if (!engine_net::address(engine_net::connect_host(host), port, &addr)) {
@@ -475,6 +475,9 @@ HttpReply http_call(const std::string& method, const std::string& host, int port
         const ssize_t n = recv(s, buf, sizeof(buf), 0);
 #endif
         if (n > 0) {
+            if (raw.size() + static_cast<size_t>(n) > max_response_bytes) {
+                r.status = 0; r.err = "response too large"; sock_close(s); return r;
+            }
             raw.append(buf, static_cast<size_t>(n));
             if (header_end == std::string::npos) {
                 header_end = raw.find("\r\n\r\n");
@@ -543,6 +546,7 @@ struct Svc {
     pid_t child_pid = -1;  // start_*.sh 脚本进程（进程组组长）
 #endif
     std::string running_api_url;
+    json running_health = json::object();
     std::string owned_api_host, owned_engine_host;
     int owned_api_port = 0, owned_engine_port = 0;
     std::string run_log;  // Linux：脚本日志路径
@@ -601,10 +605,12 @@ bool poll_engine_from_api(uint64_t expected = UINT64_MAX) {
     const bool eng = j.value("engine_info_ready", false);
     std::lock_guard<std::mutex> lk(g_mtx);
     if (expected != UINT64_MAX && expected != g_gen) return false;
+    g_svc.running_health = j;
     g_svc.api_up = true;
     g_svc.eng_state = eng ? "running" : "starting";
     g_svc.eng_external = g_svc.api_proc == nullptr;
     g_svc.api_external = g_svc.eng_external;
+    g_svc.owned_api_host = host; g_svc.owned_api_port = port;
     g_svc.running_api_url = "http://" + host + ":" + std::to_string(port) + "/";
     return true;
 }
@@ -691,6 +697,7 @@ void monitor_windows(uint64_t gen, int64_t deadline, std::string ah, int ap) {
         {
             std::lock_guard<std::mutex> lk(g_mtx);
             if (gen != g_gen) return;
+            if (api) g_svc.running_health = j;
             g_svc.api_up = api;
             g_svc.eng_state = engine ? "running" : "starting";
             if (api && engine) set_state_locked("running", "");
@@ -1010,6 +1017,7 @@ json status_json() {
     j["api"] = api;
     j["run_log"] = g_svc.run_log;
     j["console_url"] = g_svc.running_api_url;
+    j["health"] = g_svc.api_up ? g_svc.running_health : json(nullptr);
     return j;
 }
 
@@ -1022,6 +1030,65 @@ void send_json(http::Response* r, const json& j) {
 }
 
 std::string query_param(const http::Request& q, const std::string& key);
+
+// Read-only telemetry bridge. The target is captured from the running service,
+// never from a newly edited next-start profile. No engine queries or GPU work.
+void handle_telemetry(const http::Request& q, http::Response* r, http::Stream*) {
+#ifdef _WIN32
+    std::string host; int port = 0; uint64_t gen = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_mtx);
+        if (!g_svc.api_up || g_svc.state != "running") {
+            send_json(r, {{"available", false}, {"reason", "stopped"}}); return;
+        }
+        host = g_svc.owned_api_host; port = g_svc.owned_api_port; gen = g_gen;
+    }
+    const bool history = q.path == "/api/history";
+    // History reads scan request-stat files, so share one bounded ten-second
+    // cache across tabs. Live counters remain an inexpensive memory-only read.
+    static std::mutex history_mutex;
+    static std::string cached_target;
+    static json cached_history;
+    static std::chrono::steady_clock::time_point cached_at{};
+    const auto key = host + ":" + std::to_string(port) + ":" + std::to_string(gen);
+    std::unique_lock<std::mutex> cache_lock(history_mutex, std::defer_lock);
+    if (history) cache_lock.lock();
+    json result;
+    const auto now = std::chrono::steady_clock::now();
+    if (history && key == cached_target && !cached_history.is_null() &&
+        now - cached_at < std::chrono::seconds(10)) {
+        result = cached_history;
+    } else {
+        auto fetch = [&](const char* path) {
+            HttpReply reply = http_call("GET", host, port, path, "", 1500, 2u * 1024 * 1024);
+            json data = json::parse(reply.body, nullptr, false);
+            if (reply.status != 200 || !data.is_object())
+                return json{{"available", false}, {"reason", reply.status == 404 ? "unsupported" : "unavailable"}};
+            return json{{"available", true}, {"data", std::move(data)}};
+        };
+        if (history) {
+            const json summary = fetch("/reqstat/summary"), tail = fetch("/reqstat/tail?n=5");
+            result = {{"available", summary.value("available", false)},
+                      {"summary", summary.value("data", json(nullptr))},
+                      {"recent", tail.value("data", json(nullptr))},
+                      {"reason", summary.value("reason", "")}};
+            // Failure is retried instead of becoming a cached absence.
+            if (result.value("available", false)) {
+                cached_target = key; cached_history = result; cached_at = now;
+            }
+        } else result = fetch("/metrics/live");
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_mtx);
+        if (gen != g_gen || !g_svc.api_up || g_svc.state != "running" ||
+            host != g_svc.owned_api_host || port != g_svc.owned_api_port)
+            result = {{"available", false}, {"reason", "service_changed"}};
+    }
+    send_json(r, result);
+#else
+    send_json(r, {{"available", false}, {"reason", "unsupported"}});
+#endif
+}
 
 // ---- /api/profiles：方案（保存/切换一组「权重 + 推理设置」配置） -------------------
 // 存 data/launcher-profiles.json：{"profiles": {名字: {weights_ver, 键…}}}。
@@ -1243,25 +1310,6 @@ void handle_check(const http::Request& q, http::Response* r, http::Stream*) {
         out.push_back(std::move(e));
     }
     send_json(r, out);
-}
-
-// ---- /media/：面板同款背景与立绘（白名单，防目录穿越） ---------------------------
-void handle_media(const http::Request& q, http::Response* r, http::Stream*) {
-    const std::string name = q.path.substr(7);  // "/media/" 之后
-    if (name != "panel-bg.png" && name != "qwen-charactor-alpha.png") {
-        r->status = 404;
-        r->body = http::error_json("not found", "not_found", "not_found");
-        return;
-    }
-    std::string data;
-    if (!svcconf::read_text_file(g_root + "/media/" + name, &data)) {
-        r->status = 404;
-        r->body = http::error_json("not found", "not_found", "not_found");
-        return;
-    }
-    r->content_type = "image/png";
-    r->body = std::move(data);
-    r->set("Cache-Control", "public, max-age=86400");
 }
 
 std::string query_param(const http::Request& q, const std::string& key) {
@@ -2616,6 +2664,8 @@ int main(int argc, char** argv) {
     route("GET", "/api/config", handle_config_get);
     route("POST", "/api/config", handle_config_post);
     route("GET", "/api/status", handle_status);
+    route("GET", "/api/metrics", handle_telemetry);
+    route("GET", "/api/history", handle_telemetry);
     route("POST", "/api/start", handle_start);
     route("POST", "/api/stop", handle_stop);
     route("GET", "/api/logs", handle_logs);
@@ -2625,8 +2675,6 @@ int main(int argc, char** argv) {
     route("GET", "/api/profiles", handle_profiles_get);
     route("POST", "/api/profiles", handle_profiles_post);
     route("POST", "/api/profiles/delete", handle_profiles_delete);
-    route("GET", "/media/panel-bg.png", handle_media);
-    route("GET", "/media/qwen-charactor-alpha.png", handle_media);
     route("GET", "/", handle_static);
     g_server.set_not_found([](const http::Request& q, http::Response* r, http::Stream*) {
         if (q.path.compare(0, 5, "/api/") == 0) {

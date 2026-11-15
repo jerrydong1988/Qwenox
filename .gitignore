@@ -18,3 +18,6 @@ data/*.bin
 /launcher_settings.exe
 /data/launcher-profiles.json
 /service.conf.bak
+
+# Local visual verification captures; durable design records stay tracked.
+/.impeccable/review/

@@ -1,5 +1,9 @@
 # GGUF kernels and Windows web launcher — 2026-11-15
 
+Subsequent UI redesign: [LAUNCHER_REDESIGN_20261115.md](LAUNCHER_REDESIGN_20261115.md)
+removes the decorative media dependency and connects maintained live/history
+metrics. The appearance and media instructions below describe the initial port.
+
 The maintained branch now supports the locally available Qwen3.8-Flash-Next
 `qwen4exp` GGUF weights on Windows and an optional web launcher using the existing
 native supervisor. This is a source integration with isolated runtime validation.
