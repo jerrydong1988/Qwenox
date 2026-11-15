@@ -1212,6 +1212,14 @@ static uint64_t fingerprint(const GpuModel& m) {
                      bits(g_cfg.rope.beta_fast), bits(g_cfg.rope.beta_slow),
                      bits(g_cfg.rope.attention_factor)})
     add(v);
+  // GGUF native dense weights (not the q8g32 requant): different numerics,
+  // so snapshots of the two layouts never mix. Other setups keep their hash.
+  if (g_gguf_dense && gguf_map::g_native_dense) {
+    add(0x4e41544956453031ULL);
+    // The selectable verifier changes floating-point accumulation. Never load
+    // a persistent KV snapshot produced under the other verification policy.
+    add(dense_wmma_gg_on() ? 1 : 0);
+  }
   return h;
 }
 static bool ends_with(const std::string& s, const char* suf) {

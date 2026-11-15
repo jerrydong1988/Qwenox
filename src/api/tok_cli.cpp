@@ -13,7 +13,8 @@ int main(int argc, char** argv) {
     std::string dir = argc > 1 ? argv[1] : "models/tokenizer";
     gdec::Tokenizer tok;
     std::string err;
-    if (!tok.load(dir, &err)) {
+    if (!(dir.size() > 5 && dir.substr(dir.size()-5) == ".gguf"
+              ? tok.load_gguf(dir, &err) : tok.load(dir, &err))) {
         std::cerr << "load failed: " << err << "\n";
         return 1;
     }

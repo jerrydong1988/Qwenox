@@ -6,6 +6,7 @@
 #   bash build_win.sh bench      # 性能测试工具 → build/qwenox-bench.exe
 #   bash build_win.sh api        # OpenAI HTTP 前端 → build/qwenox-win.exe
 #   bash build_win.sh launcher   # 免脚本启动器 → ./start_win.exe（双击即用，托盘程序）
+#   bash build_win.sh web-launcher # 网页方案管理 → ./launcher_settings.exe
 #   bash build_win.sh eng-cli    # 引擎协议诊断客户端 → build/eng-cli-win.exe
 #   bash build_win.sh test       # 编 build/ktest-win.exe 并运行 kernel 单测
 #   bash build_win.sh webp-test  # CPU WebP/工具图片回归（测试需要 Pillow）
@@ -43,12 +44,12 @@ export HIP_PATH="$TR_WIN"
 unset ROCM_PATH HIP_PATH_64 HIP_PATH_71 HIP_PATH_72
 GPU_ARCH="${GPU_ARCH:-gfx1151}"
 TARGET="${1:-all}"
-[[ "$TARGET" == all || "$TARGET" == engine || "$TARGET" == bench || "$TARGET" == api || "$TARGET" == launcher || "$TARGET" == eng-cli || "$TARGET" == test || "$TARGET" == v2-test || "$TARGET" == v006-test || "$TARGET" == webp-test || "$TARGET" == qwen27-test || "$TARGET" == snap-cuts-test || "$TARGET" == literal-test ]] || { sed -n '2,12p' "$0" >&2; exit 2; }
+[[ "$TARGET" == all || "$TARGET" == engine || "$TARGET" == bench || "$TARGET" == api || "$TARGET" == launcher || "$TARGET" == web-launcher || "$TARGET" == eng-cli || "$TARGET" == test || "$TARGET" == v2-test || "$TARGET" == v006-test || "$TARGET" == webp-test || "$TARGET" == qwen27-test || "$TARGET" == snap-cuts-test || "$TARGET" == literal-test ]] || { sed -n '2,12p' "$0" >&2; exit 2; }
 
 # Host-only targets still use TheRock clang, but need neither HIP nor GPU
 # runtime/database staging. Preserve the existing GPU toolchain for other targets.
 NEED_HIP=1
-[[ "$TARGET" == api || "$TARGET" == launcher || "$TARGET" == eng-cli || "$TARGET" == webp-test || "$TARGET" == qwen27-test || "$TARGET" == snap-cuts-test || "$TARGET" == literal-test ]] && NEED_HIP=0
+[[ "$TARGET" == api || "$TARGET" == launcher || "$TARGET" == web-launcher || "$TARGET" == eng-cli || "$TARGET" == webp-test || "$TARGET" == qwen27-test || "$TARGET" == snap-cuts-test || "$TARGET" == literal-test ]] && NEED_HIP=0
 [[ "$NEED_HIP" == 0 || -x "$HIPCC" ]] || { echo "找不到 TheRock hipcc: $HIPCC（设 THEROCK=...）" >&2; exit 1; }
 mkdir -p build
 for d in msvcp140.dll vcruntime140.dll vcruntime140_1.dll; do
@@ -160,6 +161,26 @@ build_launcher() {
     fi
 }
 
+build_web_launcher() {
+    CXX="$TR/lib/llvm/bin/clang++.exe"
+    [[ -x "$CXX" ]] || { echo "找不到 TheRock clang++: $CXX" >&2; exit 1; }
+    "$CXX" -O2 -std=c++17 tools/gen_static_inc.cpp -o build/gen_static_inc.exe
+    ./build/gen_static_inc.exe src/launcher_static src/launcher_static_gen.inc
+    local gui=(-mwindows) res=()
+    if "$CXX" -dumpmachine | grep -q msvc; then
+        gui=(-Xlinker -subsystem:windows -Xlinker -entry:mainCRTStartup)
+        local rc="$TR/lib/llvm/bin/llvm-rc.exe"
+        if [[ -x "$rc" ]] && "$rc" -no-preprocess -fo build/launcher_settings.res src/launcher_settings.rc; then
+            res=(build/launcher_settings.res)
+        elif command -v rc.exe >/dev/null 2>&1 && rc.exe -nologo -I src -fo build/launcher_settings.res src/launcher_settings.rc; then
+            res=(build/launcher_settings.res)
+        fi
+    fi
+    "$CXX" -O2 -std=c++17 -D_CRT_SECURE_NO_WARNINGS -Ithird_party \
+      src/launcher_settings.cpp src/api/http.cpp src/api/json_py.cpp \
+      -lws2_32 -luser32 -lshell32 -ladvapi32 -lgdi32 "${gui[@]}" ${res[@]+"${res[@]}"} -o launcher_settings.exe
+}
+
 build_eng_cli() {
     CXX="$TR/lib/llvm/bin/clang++.exe"
     [[ -x "$CXX" ]] || { echo "找不到 TheRock clang++: $CXX" >&2; exit 1; }
@@ -244,11 +265,13 @@ case "$TARGET" in
     build_bench
     build_api
     build_launcher
+    build_web_launcher
     ;;
   engine) build_engine ;;
   bench) build_bench ;;
   api) build_api ;;
   launcher) build_launcher ;;
+  web-launcher) build_web_launcher ;;
   eng-cli) build_eng_cli ;;
   test) build_test ;;
 esac

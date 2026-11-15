@@ -147,6 +147,9 @@ static bool guvb_f16_env() {
 
 // 镜像 GpuModel 构造函数的分配公式（含相同 env 分支），用于 arena 精确 sizing。
 // 每项 256B 对齐后求和；估少了一律有 dalloc_arena 的 hipMalloc 回退兜底。
+// GGUF routed experts that load_arena will copy into the arena (Windows),
+// and the hgn expert bytes they replace (defined after gguf_experts_open).
+[[maybe_unused]] static size_t gguf_experts_arena_bytes(const Checkpoint& ck, size_t* hgn_replaced);
 static size_t devarena_estimate(const Checkpoint& ck, int maxctx) {
   size_t total = 0;
   auto add = [&](size_t b) { total += (b + 255) & ~(size_t)255; };
@@ -158,6 +161,11 @@ static size_t devarena_estimate(const Checkpoint& ck, int maxctx) {
     if ((t.dtype == 16 || t.dtype == 24) &&
         (!v2_upstream_dense() || (v2_reference_head() && t.name=="lm_head.weight"))) add(t.numel()*2);
   }
+#ifdef _WIN32
+  size_t hgn_replaced = 0;
+  total += gguf_experts_arena_bytes(ck, &hgn_replaced);
+  total -= std::min(total, hgn_replaced);
+#endif
   const bool qsa_dense = getenv("GDEC_QSA_DENSE") != nullptr;
   if(ck.find("layers.0.mlp.experts.gate_up_proj.weight") &&
      ck.at("layers.0.mlp.experts.gate_up_proj.weight").dtype==23) {
@@ -398,6 +406,10 @@ static void devarena_init(const Checkpoint& ck, int maxctx) {
 struct GgExperts {
   const uint8_t *gate = nullptr, *up = nullptr, *down = nullptr;
   int tgu = 0, tdn = 0;  // gguf::Type of gate/up and of down
+  // source tensors (gate, up, down). Linux: gate/up/down are their
+  // hipHostRegister'd mmap pointers. Windows: load_arena copies them into the
+  // device arena and re-points gate/up/down there.
+  const gguf::Tensor* src[3] = {nullptr, nullptr, nullptr};
 };
 static gguf::File* g_gguf = nullptr;
 static gguf::File* g_gguf_mtp = nullptr;  // GDEC_GGUF_MTP sidecar
@@ -422,9 +434,6 @@ static void gguf_experts_open() {
     fprintf(stderr, "gguf experts: off (GDEC_GGUF_EXPERTS=0), hgn experts\n");
     return;
   }
-#ifdef _WIN32
-  throw std::runtime_error("GDEC_GGUF: not supported on Windows yet");
-#else
   auto t0 = std::chrono::steady_clock::now();
   if (!g_gguf) g_gguf = new gguf::File(path);  // may be open already (gguf_dense_apply)
   struct Range { uintptr_t a, b; };
@@ -446,11 +455,15 @@ static void gguf_experts_open() {
         t[2]->ne[1] != D || t[2]->ne[2] != E)
       throw std::runtime_error("GDEC_GGUF: unexpected expert shapes/types at layer " +
                                std::to_string(l));
-    if (t[0]->type != gguf::Q4_K && t[0]->type != gguf::Q5_K &&
-        !(mtp && t[0]->type == gguf::Q8_0))
+    // UD-Q4_K_XL: Q4_K/Q5_K gate+up, Q5_1/Q8_0 down; UD-IQ4_XS: IQ3_S/IQ4_XS
+    // gate+up, IQ4_NL/Q8_0 down (per-layer mix); MTP sidecar: Q8_0.
+    (void)mtp;
+    const uint32_t tg = t[0]->type, td = t[2]->type;
+    if (tg != gguf::Q4_K && tg != gguf::Q5_K && tg != gguf::Q8_0 && tg != gguf::IQ4_XS &&
+        tg != gguf::IQ3_S)
       throw std::runtime_error(std::string("GDEC_GGUF: gate/up type ") +
                                gguf::type_name(t[0]->type) + " unsupported");
-    if (t[2]->type != gguf::Q5_1 && t[2]->type != gguf::Q8_0)
+    if (td != gguf::Q5_1 && td != gguf::Q8_0 && td != gguf::IQ4_NL)
       throw std::runtime_error(std::string("GDEC_GGUF: down type ") +
                                gguf::type_name(t[2]->type) + " unsupported");
     for (auto* x : t) {
@@ -459,7 +472,9 @@ static void gguf_experts_open() {
       rs.push_back({a, b});
       bytes += x->nbytes;
     }
-    return GgExperts{t[0]->data, t[1]->data, t[2]->data, (int)t[0]->type, (int)t[2]->type};
+    GgExperts g{t[0]->data, t[1]->data, t[2]->data, (int)t[0]->type, (int)t[2]->type};
+    for (int i = 0; i < 3; i++) g.src[i] = t[i];
+    return g;
   };
   std::vector<GgExperts> trunk;
   for (int l = 0; l < g_cfg.layers; l++) {
@@ -484,21 +499,54 @@ static void gguf_experts_open() {
     else
       merged.push_back(r);
   }
+#ifndef _WIN32
   for (const Range& r : merged) {
     hipError_t re = hipHostRegister((void*)r.a, r.b - r.a, hipHostRegisterMapped);
     if (re != hipSuccess)
       throw std::runtime_error(std::string("GDEC_GGUF: hipHostRegister: ") +
                                hipGetErrorString(re));
   }
+#endif
   g_ggx = std::move(trunk);
   g_ggx_mtp = mtpx;
   double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-  fprintf(stderr,
-          "gguf experts: %zu layers from %s%s (%.1f GiB, %zu ranges, %.1f s; "
-          "Q5_K gate/up %d layers, Q8_0 down %d layers)\n",
-          g_ggx.size(), path, gg_mtp_on() ? " + MTP sidecar" : "", bytes / 1073741824.0,
-          merged.size(), s, n_q5k, n_q80);
+  std::string mix;  // per-layer type mix, e.g. "IQ3_S/IQ4_NL x42, IQ4_XS/Q8_0 x1, ..."
+  {
+    std::vector<std::pair<std::string, int>> kinds;
+    for (const auto& g : g_ggx) {
+      const std::string k = std::string(gguf::type_name(g.tgu)) + "/" + gguf::type_name(g.tdn);
+      auto it = std::find_if(kinds.begin(), kinds.end(), [&](auto& p) { return p.first == k; });
+      if (it == kinds.end()) kinds.push_back({k, 1});
+      else it->second++;
+    }
+    for (auto& k : kinds) mix += (mix.empty() ? "" : ", ") + k.first + " x" + std::to_string(k.second);
+  }
+  (void)n_q5k;
+  (void)n_q80;
+#ifdef _WIN32
+  const char* how = "copied into the device arena";
+#else
+  const char* how = "registered";
 #endif
+  fprintf(stderr, "gguf experts: %zu layers from %s%s (%.1f GiB, %zu ranges %s, %.1f s; gate+up/down: %s)\n",
+          g_ggx.size(), path, gg_mtp_on() ? " + MTP sidecar" : "", bytes / 1073741824.0,
+          merged.size(), how, s, mix.c_str());
+}
+
+[[maybe_unused]] static size_t gguf_experts_arena_bytes(const Checkpoint& ck, size_t* hgn_replaced) {
+  *hgn_replaced = 0;
+#ifdef _WIN32
+  gguf_experts_open();  // Windows: tensor lookup only (no registration), idempotent
+#endif
+  if (!gg_on()) return 0;
+  size_t b = 0;
+  for (const auto& g : g_ggx)
+    for (const gguf::Tensor* t : g.src) b += (t->nbytes + 255) & ~(size_t)255;
+  if (gg_mtp_on())
+    for (const gguf::Tensor* t : g_ggx_mtp.src) b += (t->nbytes + 255) & ~(size_t)255;
+  for (const auto& kv : ck.tensors())
+    if (is_gguf_experts(kv.first)) *hgn_replaced += (kv.second.data_size + 255) & ~(size_t)255;
+  return b;
 }
 
 // --- GGUF non-expert weights (G3.1, GDEC_GGUF + GDEC_GGUF_DENSE=1) ----------
@@ -528,10 +576,6 @@ static void gguf_dense_apply(Checkpoint& ck) {
   if (!on || !*on || !strcmp(on, "0")) return;
   const char* path = getenv("GDEC_GGUF");
   if (!path || !*path) throw std::runtime_error("GDEC_GGUF_DENSE needs GDEC_GGUF=<first shard>");
-#ifdef _WIN32
-  (void)ck;
-  throw std::runtime_error("GDEC_GGUF_DENSE: not supported on Windows yet");
-#else
   auto t0 = std::chrono::steady_clock::now();
   if (!g_gguf) g_gguf = new gguf::File(path);
   const char* mp = getenv("GDEC_GGUF_MTP");
@@ -553,27 +597,39 @@ static void gguf_dense_apply(Checkpoint& ck) {
     };
     fprintf(stderr, "gguf dense: filter %s\n", f);
   }
+  // GDEC_GGUF_NATIVE=0: every non-Q8_0 dense matrix is requantized to q8g32
+  // (the earlier layout). Default: K-quant / IQ4 matrices stay native.
+  {
+    const char* ne = getenv("GDEC_GGUF_NATIVE");
+    gguf_map::g_native_dense = !(ne && ne[0] == '0' && ne[1] == 0);
+  }
   size_t n = gguf_map::build(ck, *g_gguf, g_gguf_mtp);
   // PLE n-gram table: a hgn base keeps its fp8 table by default (KLD 0.0453
   // vs 0.0511 with the GGUF's IQ4_NL one); pure GGUF / GDEC_GGUF_PLE=1 use IQ4_NL.
   const char* pe = getenv("GDEC_GGUF_PLE");
   const bool ple = (pe && !strcmp(pe, "1")) || !ck.find("layers.1.ple.ngram_embedding.weight");
   if (ple) gguf_map::add_ple_table(ck, *g_gguf);
-  size_t bytes = 0;
-  int n8 = 0;
-  for (auto& kv : ck.tensors())
-    if (kv.second.dtype == 8 || kv.second.dtype == 1) {
+  size_t bytes = 0, nbytes = 0;
+  int n8 = 0, nn = 0;
+  for (auto& kv : ck.tensors()) {
+    const uint32_t dt = kv.second.dtype;
+    if (dt == 8 || dt == 1) {
       bytes += kv.second.data_size;
-      n8 += kv.second.dtype == 8;
+      n8 += dt == 8;
+    } else if (dt >= 100 && ggd::type_ok((int)dt - ggd::kDtypeBase)) {
+      bytes += kv.second.data_size;
+      nbytes += kv.second.data_size;
+      nn++;
     }
+  }
   g_gguf_dense = true;
   g_dense_rowfast = true;
   double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
   fprintf(stderr,
-          "gguf dense: %zu tensors from GGUF%s (%d q8g32, %.2f GiB synthetic, %.1f s)%s\n", n,
-          g_gguf_mtp ? " + MTP sidecar" : "", n8, bytes / 1073741824.0, s,
-          ple ? "; PLE table IQ4_NL" : "");
-#endif
+          "gguf dense: %zu tensors from GGUF%s (%d q8g32, %d native %.2f GiB, %.2f GiB synthetic, "
+          "%.1f s)%s\n",
+          n, g_gguf_mtp ? " + MTP sidecar" : "", n8, nn, nbytes / 1073741824.0,
+          bytes / 1073741824.0, s, ple ? "; PLE table IQ4_NL" : "");
 }
 // After GpuModel construction: free host copies of large synthetic tensors
 // (the device arena has them). Small ones stay: ensure_hcnorm/ensure_norm256
@@ -622,16 +678,35 @@ static void load_arena(const Checkpoint& ck) {
 #endif
     total += (t.data_size + 255) & ~255ull;
   }
+  // Windows: GGUF routed experts (trunk + MTP sidecar) are copied into the
+  // same arena (no hipHostRegister direct-read path, see above); their
+  // GgExperts pointers are re-pointed below.
+  std::vector<GgExperts*> ggx_arena;
+#ifdef _WIN32
+  for (auto& g : g_ggx) ggx_arena.push_back(&g);
+  if (gg_mtp_on()) ggx_arena.push_back(&g_ggx_mtp);
+  size_t ggbytes = 0;
+  for (GgExperts* g : ggx_arena)
+    for (const gguf::Tensor* t : g->src) ggbytes += (t->nbytes + 255) & ~255ull;
+  total += ggbytes;
+  if (ggbytes)
+    fprintf(stderr, "weight arena: GGUF experts %.1f GiB copied in\n", ggbytes / 1073741824.0);
+#endif
   fprintf(stderr, "weight arena: %.1f GiB (experts direct-read: %.1f GiB)\n",
           total / 1073741824.0, xbytes / 1073741824.0);
   uint8_t* arena = nullptr;
   DALLOC(&arena, total);
 
+  // src = host view (mmap / synthetic). Windows: os_handle + foff = the file
+  // range behind src for the unbuffered ReadFile path; nullptr = host memory
+  // (gguf_map synthetic tensors), copied with memcpy.
   struct Job {
     std::string name;
     const uint8_t* src;
     uint8_t* dst;
     size_t size;
+    void* os_handle = nullptr;
+    uint64_t foff = 0;
   };
   std::vector<Job> jobs;
   size_t off = 0;
@@ -642,9 +717,29 @@ static void load_arena(const Checkpoint& ck) {
 #ifndef _WIN32
     if (is_experts(t.name)) continue;  // 已在上面登记 host 指针
 #endif
-    jobs.push_back({t.name, t.data, arena + off, t.data_size});
+    Job j{t.name, t.data, arena + off, t.data_size};
+    for (auto& mp : ck.mappings())
+      if (t.data >= mp.base && t.data < mp.base + mp.len) {
+        j.os_handle = mp.os_handle;
+        j.foff = (uint64_t)(t.data - mp.base);
+        break;
+      }
+    jobs.push_back(j);
     g_devtensor[t.name] = arena + off;
     off += (t.data_size + 255) & ~255ull;
+  }
+  for (GgExperts* g : ggx_arena) {
+    const uint8_t** ptrs[3] = {&g->gate, &g->up, &g->down};
+    for (int i = 0; i < 3; i++) {
+      const gguf::Tensor* t = g->src[i];
+      const gguf::File* f = (g == &g_ggx_mtp) ? g_gguf_mtp : g_gguf;
+      Job j{t->name, t->data, arena + off, (size_t)t->nbytes};
+      j.os_handle = f->mappings()[t->shard].os_handle;
+      j.foff = t->file_off;
+      jobs.push_back(j);
+      *ptrs[i] = arena + off;
+      off += (t->nbytes + 255) & ~255ull;
+    }
   }
   // big tensors first so stragglers don't serialize at the end
   std::sort(jobs.begin(), jobs.end(),
@@ -700,19 +795,21 @@ static void load_arena(const Checkpoint& ck) {
       size_t ji = next.fetch_add(1);
       if (ji >= jobs.size()) break;
       const Job& j = jobs[ji];
-      // 所属映射 -> （句柄， 文件偏移）
-      HANDLE h = nullptr;
-      uint64_t foff = 0;
-      for (auto& mp : ck.mappings()) {
-        if (j.src >= mp.base && j.src < mp.base + mp.len) {
-          foff = (uint64_t)(j.src - mp.base);
-          h = (HANDLE)mp.os_handle;
-          break;
-        }
-      }
+      // 所属映射 -> （句柄， 文件偏移）：预先解析在 Job 里
+      HANDLE h = (HANDLE)j.os_handle;
+      const uint64_t foff = j.foff;
       if (!h) {
-        fprintf(stderr, "pload: no os handle for %s\n", j.name.c_str());
-        abort();
+        // 无文件句柄 = 主机内存里的合成张量（gguf_map）：memcpy 进 pinned 槽再 H2D
+        WSlot& s = slots[0];
+        for (size_t c = 0; c < j.size; c += WCHUNK) {
+          const size_t n = std::min(WCHUNK, j.size - c);
+          memcpy(s.buf, j.src + c, n);
+          CK(hipMemcpyAsync(j.dst + c, s.buf, n, hipMemcpyHostToDevice, st[wid]));
+          CK(hipStreamSynchronize(st[wid]));
+          done_bytes += n;
+          prog_tick();
+        }
+        continue;
       }
       const uint64_t A = foff & ~4095ull, E = (foff + j.size + 4095) & ~4095ull;
       int si = 0;
@@ -1097,6 +1194,215 @@ static bool q6g64_gemv(const WView& w, const void* x, bool xbf16, uint64_t xs, f
   }
 }
 
+// --- GGUF native dense (dtype 100 + GGML type, 26_kernels_dense_gguf.inc) -----
+static inline bool ggd_dtype(int dt) { return dt >= 100 && ggd::type_ok(dt - ggd::kDtypeBase); }
+template <class F>
+static inline void ggd_with_type(int t, F&& f) {
+  switch (t) {
+    case ggd::kQ4K: f(std::integral_constant<int, ggd::kQ4K>{}); break;
+    case ggd::kQ5K: f(std::integral_constant<int, ggd::kQ5K>{}); break;
+    case ggd::kQ6K: f(std::integral_constant<int, ggd::kQ6K>{}); break;
+    case ggd::kIQ4NL: f(std::integral_constant<int, ggd::kIQ4NL>{}); break;
+    default: f(std::integral_constant<int, ggd::kIQ4XS>{}); break;
+  }
+}
+// y row p at y + p*ys (row r of the slice at y[p*ys + r]); x row p at x + p*xs
+// (f32 or bf16). Any P: passes of <= 8 tokens, each token bit-identical to P = 1.
+static bool ggd_gemv(const WView& w, const void* x, bool xbf16, uint64_t xs, float* y,
+                     uint64_t ys, int P, uint64_t row_off, uint64_t nrows) {
+  if (!ggd_dtype(w.dtype) || P < 1 || !nrows || w.cols % 32) return false;
+  const int t = w.dtype - ggd::kDtypeBase;
+  if (t != ggd::kIQ4NL && w.cols % 256) return false;
+  if (xs % (xbf16 ? 8 : 4) || ((uintptr_t)x & 15)) return false;
+  const uint64_t rb = ggd::row_bytes(t, w.cols);
+  const uint8_t* wd = w.data + row_off * rb;
+  if (rb % 4 || ((uintptr_t)wd & 3)) return false;  // dword-staged rows
+  const unsigned blocks = (unsigned)((nrows + 3) / 4);
+  for (int off = 0; off < P; off += 8) {
+    const int pn = std::min(8, P - off);
+    const void* xp = xbf16 ? (const void*)((const uint16_t*)x + (size_t)off * xs)
+                           : (const void*)((const float*)x + (size_t)off * xs);
+    float* yp = y + (size_t)off * ys;
+    ggd_with_type(t, [&](auto tc_) {
+      constexpr int T = decltype(tc_)::value;
+#define QWENOX_GGD(NP)                                                                  \
+  case NP:                                                                              \
+    if (xbf16)                                                                          \
+      k_ggd_gemv<T, NP, true><<<blocks, 128, 0, g_str>>>(wd, rb, xp, xs, yp, ys,      \
+                                                         (int)nrows, (int)w.cols);      \
+    else                                                                                \
+      k_ggd_gemv<T, NP, false><<<blocks, 128, 0, g_str>>>(wd, rb, xp, xs, yp, ys,     \
+                                                          (int)nrows, (int)w.cols);     \
+    break;
+      switch (pn) {
+        QWENOX_GGD(1)
+        QWENOX_GGD(2)
+        QWENOX_GGD(3)
+        QWENOX_GGD(4)
+        QWENOX_GGD(5)
+        QWENOX_GGD(6)
+        QWENOX_GGD(7)
+        QWENOX_GGD(8)
+      }
+#undef QWENOX_GGD
+    });
+  }
+  return true;
+}
+// D4: two same-dtype/same-cols native-GGUF GEMVs in one launch (P = 1 decode).
+// Per-row K order is k_ggd_gemv's, so this is bit-identical to two launches.
+static bool ggd_gemv2(const WView& a, const WView& b, const float* x, float* ya, float* yb) {
+  if (a.dtype != b.dtype || a.cols != b.cols || !ggd_dtype(a.dtype)) return false;
+  if (!a.rows || !b.rows || a.cols % 32 || ((uintptr_t)x & 15)) return false;
+  const int t = a.dtype - ggd::kDtypeBase;
+  if (t != ggd::kIQ4NL && a.cols % 256) return false;
+  const uint64_t rb = ggd::row_bytes(t, a.cols);
+  if (rb % 4 || ((uintptr_t)a.data & 3) || ((uintptr_t)b.data & 3)) return false;
+  const int RA = (int)a.rows, RB = (int)b.rows;
+  const unsigned blocks = (unsigned)((RA + RB + 3) / 4);
+  ggd_with_type(t, [&](auto tc_) {
+    constexpr int T = decltype(tc_)::value;
+    k_ggd_gemv2<T, false><<<blocks, 128, 0, g_str>>>(a.data, b.data, RA, RB, rb, x, ya, yb,
+                                                     (int)a.cols);
+  });
+  return true;
+}
+
+// --- GGUF native dense WMMA (k_ggd_wmma), row-invariant for P = 1..48 -------
+// One weight pass for any P <= 48 (the chunked <= 8-row GEMV re-reads the
+// weight ceil(P/8) times: verify gamma=8 twice, a 48-row rendezvous 6x). Same
+// contract as the hgn dense WMMA kernels: the kernel family serves decode
+// (P = 1), verify and rendezvous alike, so concurrent output matches
+// single-run bit for bit. QWENOX_GG_WMMA=0 keeps the chunked GEMV.
+float* g_ggw_part = nullptr;  // split-K partials, ns * 48 * rows floats
+static constexpr size_t kGgwPartFloats = (size_t)4 << 20;  // 16 MiB
+static bool dense_wmma_gg_on() {
+  static const bool v = [] {
+    const char* e = getenv("QWENOX_GG_WMMA");
+    const int mode = e && *e ? atoi(e) : 1;  // 1 = all P (default), 0 = off
+    const bool on = mode != 0;
+    if (on)
+      fprintf(stderr, "dense wmma: GGUF native GEMV P<=48 on k_ggd_wmma (QWENOX_GG_WMMA)\n");
+    return on;
+  }();
+  return v;
+}
+// Wave layout (RW x KW, 8 waves) and K slicing (gps quant blocks per slice)
+// from the FULL tensor shape only. RW is the largest of 8/4/2 keeping
+// R % (16*RW) == 0 with >= 32 row tiles (else 1); split-K then fills toward
+// QWENOX_GGW_BLOCKS (default 80) blocks. The Q4_K/Q5_K x group-sum LDS budget
+// (48 x 192 f32 max) caps the slice at 192 32-col groups.
+static bool ggw_config(int dtype, uint64_t rows, uint64_t cols, int& rw, int& gps, int& ns) {
+  const int t = dtype - ggd::kDtypeBase;
+  const int bpk = t == ggd::kIQ4NL ? 1 : 8;  // 32-col groups per quant block
+  if (t == ggd::kIQ4NL) {
+    if (cols % 32) return false;
+  } else if (cols % 256)
+    return false;
+  if (rows % 16) return false;
+  const int nblk = (int)(cols / (32 * bpk));
+  rw = 1;
+  for (int cand : {8, 4, 2})
+    if (rows % (16 * cand) == 0 && rows / (16 * cand) >= 32) {
+      rw = cand;
+      break;
+    }
+  const int tiles = (int)(rows / (16 * rw));
+  static const int target = [] {
+    const char* e = getenv("QWENOX_GGW_BLOCKS");
+    return e && *e ? std::max(1, atoi(e)) : 80;
+  }();
+  ns = 1;
+  if (tiles < target) ns = std::min((target + tiles - 1) / tiles, nblk);
+  gps = (nblk + ns - 1) / ns;
+  const int gcap = 192 / bpk;
+  if (gps > gcap) {
+    gps = gcap;
+    ns = (nblk + gps - 1) / gps;
+  }
+  if (ns > 1 && (size_t)ns * 48 * rows > kGgwPartFloats) return false;
+  return true;
+}
+static bool ggd_wmma(const WView& w, const void* x, bool xbf16, uint64_t xs, float* y,
+                     uint64_t ys, int P, uint64_t row_off, uint64_t nrows) {
+  static const bool dbg = getenv("QWENOX_GGW_DEBUG") != nullptr;
+  auto rej = [&](const char* why) {
+    if (dbg)
+      fprintf(stderr, "ggw refuse: %s dtype=%d R=%llu C=%llu P=%d row_off=%llu nrows=%llu\n",
+              why, w.dtype, (unsigned long long)w.rows, (unsigned long long)w.cols, P,
+              (unsigned long long)row_off, (unsigned long long)nrows);
+    return false;
+  };
+  if (P < 1 || P > 48 || !nrows || !ggd_dtype(w.dtype)) return rej("P/dtype");
+  int rw = 1, gps = 1, ns = 1;
+  if (!ggw_config(w.dtype, w.rows, w.cols, rw, gps, ns)) return rej("config");
+  // row slices keep the full-tensor per-element arithmetic only when the
+  // slice boundary falls on a wave-tile boundary
+  if (row_off % (uint64_t)(16 * rw) || nrows % (uint64_t)(16 * rw)) return rej("rowslice");
+  const int t = w.dtype - ggd::kDtypeBase;
+  const uint64_t rb = ggd::row_bytes(t, w.cols);
+  if (rb % 4 || !w.data) return rej("rb/data");
+  const uint8_t* wd = w.data + row_off * rb;
+  if (xs % (xbf16 ? 8 : 4) || (((uintptr_t)x | (uintptr_t)y) & 15)) return rej("align");
+  const int bpk = t == ggd::kIQ4NL ? 1 : 8;
+  const bool bias = t == ggd::kQ4K || t == ggd::kQ5K;
+  const size_t lds = bias ? (size_t)P * (gps * bpk) * 4 : 0;
+  if (lds > 48 * 192 * 4) return rej("lds");
+  if (ns > 1 && !g_ggw_part) CK(hipMalloc(&g_ggw_part, kGgwPartFloats * 4));
+  if (dbg) {
+    static int nlog = 0;
+    if (nlog++ < 12)
+      fprintf(stderr, "ggw accept: dtype=%d R=%llu C=%llu P=%d rw=%d gps=%d ns=%d\n",
+              w.dtype, (unsigned long long)w.rows, (unsigned long long)w.cols, P, rw, gps,
+              ns);
+  }
+  float* out = ns > 1 ? g_ggw_part : y;
+  const dim3 grid((unsigned)(nrows / (16 * rw)), (unsigned)ns);
+  const int R = (int)nrows, C = (int)w.cols;
+  ggd_with_type(t, [&](auto tc_) {
+    constexpr int T = decltype(tc_)::value;
+#define QWENOX_GGW(NPT, RW, KW)                                                             \
+  do {                                                                                      \
+    if (xbf16)                                                                              \
+      k_ggd_wmma<T, NPT, RW, KW, uint16_t><<<grid, 256, lds, g_str>>>(                      \
+          wd, rb, (const uint16_t*)x, xs, out, ys, R, C, gps, P);                           \
+    else                                                                                    \
+      k_ggd_wmma<T, NPT, RW, KW, float><<<grid, 256, lds, g_str>>>(                         \
+          wd, rb, (const float*)x, xs, out, ys, R, C, gps, P);                              \
+  } while (0)
+#define QWENOX_GGW_P(RW, KW)                                                                \
+  do {                                                                                      \
+    if (P <= 16)                                                                            \
+      QWENOX_GGW(1, RW, KW);                                                                \
+    else if (P <= 32)                                                                       \
+      QWENOX_GGW(2, RW, KW);                                                                \
+    else                                                                                    \
+      QWENOX_GGW(3, RW, KW);                                                                \
+  } while (0)
+    switch (rw) {
+      case 8: QWENOX_GGW_P(8, 1); break;
+      case 4: QWENOX_GGW_P(4, 2); break;
+      case 2: QWENOX_GGW_P(2, 4); break;
+      default: QWENOX_GGW_P(1, 8); break;
+    }
+#undef QWENOX_GGW
+#undef QWENOX_GGW_P
+  });
+  if (ns > 1)
+    k_ggd_wred<<<(unsigned)(((size_t)P * R + 255) / 256), 256, 0, g_str>>>(out, y, ys, R, ns,
+                                                                          P);
+  return true;
+}
+static void ggd_deq_bf16(const WView& w, uint16_t* out, hipStream_t st) {
+  const int t = w.dtype - ggd::kDtypeBase;
+  const uint64_t rb = ggd::row_bytes(t, w.cols), n = w.rows * (w.cols / 32);
+  ggd_with_type(t, [&](auto tc_) {
+    constexpr int T = decltype(tc_)::value;
+    k_ggd_deq_bf16<T><<<(unsigned)((n + 255) / 256), 256, 0, st>>>(w.data, rb, out, w.rows,
+                                                                   (int)w.cols);
+  });
+}
+
 // ht / q6g64 -> bf16 W[rows][cols] (prefill GEMM operand).
 static void v2_deq_bf16(const WView& w, uint16_t* out, hipStream_t st) {
   if (w.dtype == 16) {
@@ -1190,6 +1496,9 @@ static void gemv(const WView& w, const float* x, float* y, uint64_t row_off = 0,
     ht_gemv(w, x, false, 0, y, 0, 1, row_off, rows);
   } else if (w.dtype == 24) {
     q6g64_gemv(w, x, false, 0, y, 0, 1, row_off, rows);
+  } else if (ggd_dtype(w.dtype)) {
+    if (!ggd_gemv(w, x, false, w.cols, y, 0, 1, row_off, rows))
+      throw std::runtime_error("gemv: GGUF native dense shape/alignment");
   } else {
     throw std::runtime_error("gemv: unsupported dtype");
   }
@@ -1228,8 +1537,14 @@ static bool gemv_multi_q4cp(const WView& w, const void* x, float* y, int P,
                             uint64_t xstride, bool xbf16 = false,
                             bool serial_order = false) {
   if (getenv("GDEC_NO_GEMVMR")) return false;
-  if (P < 1 || P > 8) return false;
   if (!xstride) xstride = w.cols;
+  if (ggd_dtype(w.dtype)) {
+    if (P < 1 || P > 48) return false;
+    if (P >= 2 && dense_wmma_gg_on() &&
+        ggd_wmma(w, x, xbf16, xstride, y, w.rows, P, 0, w.rows)) return true;
+    return ggd_gemv(w, x, xbf16, xstride, y, w.rows, P, 0, w.rows);
+  }
+  if (P < 1 || P > 8) return false;
   if(g_v2_ht_native && w.ht_data && w.rows*w.cols>=8000000){
     const int split=w.rows>=65536?1:(w.cols>=4096?8:2);
     hgnv2gpu::ht_rotate_input<<<dim3(w.cols/128,P),128,0,g_str>>>(x,g_v2_ht_x,w.su,(int)w.cols,xstride,xbf16);

@@ -1,5 +1,9 @@
 # Qwenox upstream selection — 2026-11-15
 
+Follow-up: the subsequently authorized Flash GGUF kernel and Windows web-launcher
+adaptation is recorded in [GGUF_LAUNCHER_20261115.md](GGUF_LAUNCHER_20261115.md).
+The deferred decisions below describe the earlier selection pass.
+
 ## Reviewed range and decision
 
 Official repository: <https://github.com/IIIIIllllIIIIIlllll/Qwenox>.

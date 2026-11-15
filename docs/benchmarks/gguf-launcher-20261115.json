@@ -1,0 +1,802 @@
+{
+  "date": "2026-11-15",
+  "base_commit": "8e76e5427177d39c11f5a40322edc60b50924db6",
+  "official_tip": "4cb03125fda8e601dba4030cdb95310f9cc63da6",
+  "hardware": "AMD Radeon 8060S gfx1151, Windows",
+  "scope": "Flash qwen4exp GGUF plus web launcher, HGN maintained; no deployment replacement",
+  "artifacts": {
+    "qwenox-release.exe": "fa2673d142393f8ce8d19120baf2fccf11f83cd5b2775f929b5b7e2294231990",
+    "qwenox-api.exe": "10ed272329652c571490bcfc4e7e9ac2cedd9ac6d422b693fd74b3de895f6fee",
+    "native-launcher.exe": "c30a62b2f22ea1231b0fa1a840d90a6d2b07d14cf7730a98dc148aa9c6f9d74e",
+    "launcher_settings.exe": "8292be92ba63abc9fcc69e337681f3d51ef3d56dd38d4ed944572b4e6763a530"
+  },
+  "measured_engine_before_cache_policy_bit": "24fa9039031152652706754ad1ad2dd8889c6dacccb8a5ec17c2810844fbd1a0",
+  "deployed_runtime_amdhip64_7_sha256": "546fb3d6e2d2194a9526fb94ec2fd3aa5b92a48a7595f04efece80162047ef69",
+  "daily_deployments": [
+    {
+      "root": "C:\\Users\\Jerry\\llama.cpp\\Qwenox",
+      "files": {
+        "service.conf": "d5202a2c2e2e5e95ac6468d30b8bb14a375b2ecf29c890f613d3ddbb74f33536",
+        "start_win.exe": "2285f416411abd50ff96a5079947b34eb8d51ca575844c9bc24850b0be0d54ee",
+        "build/gdec-win.exe": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+        "build/qwenox-engine-win.exe": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+        "build/qwenox-win.exe": "1f63b9ebd2fdf72a53e6fffc26e1efe115f2731122c3764122f719c3758fb955",
+        "build/amdhip64_7.dll": "546fb3d6e2d2194a9526fb94ec2fd3aa5b92a48a7595f04efece80162047ef69"
+      }
+    },
+    {
+      "root": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27",
+      "files": {
+        "service.conf": "ea91065e2f0d47321bb77a1027a0b21e9bcb1169268d1627c58c97ac977d19c3",
+        "start_win.exe": "2285f416411abd50ff96a5079947b34eb8d51ca575844c9bc24850b0be0d54ee",
+        "build/gdec-win.exe": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+        "build/qwenox-engine-win.exe": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+        "build/qwenox-win.exe": "1f63b9ebd2fdf72a53e6fffc26e1efe115f2731122c3764122f719c3758fb955",
+        "build/amdhip64_7.dll": "546fb3d6e2d2194a9526fb94ec2fd3aa5b92a48a7595f04efece80162047ef69"
+      }
+    }
+  ],
+  "selected_upstream": {
+    "07bf813": "07bf8132ca11008b65fcf9d94963fc32a1ed0c39",
+    "03a1401": "03a1401a1afc104ef5ee8706294174f098402912",
+    "1d7f882": "1d7f8825cfdf1b1bceda570b76576959004daae3",
+    "3814895": "3814895d4bcfe15d4fe1cdf6925c954f4c4c6da2",
+    "d7d0159": "d7d015930d33a49a9964bdab186b47ce9a3a822f",
+    "87f71d9": "87f71d9e05ca9e7e116679ec496eac1564e66b87"
+  },
+  "gguf": {
+    "weights": "Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf",
+    "mtp": "mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf",
+    "architecture": "qwen4exp",
+    "context": 8192,
+    "parallel": 2,
+    "pool_tokens": 16384,
+    "prefill_chunk": 512,
+    "kvsnap": false,
+    "memory_checkpoints": 0,
+    "native_dense_tensor_counts": {
+      "q8g32": 512,
+      "Q6_K": 1
+    }
+  },
+  "correctness": {
+    "wmma_cases": 80,
+    "wmma_failures": 0,
+    "wmma_worst_relative_error": 0.001120642,
+    "independent_dequant_elements_per_type": 1048576,
+    "independent_dequant_mismatches": 0,
+    "expert_layer": {
+      "layer": 1,
+      "P": 64,
+      "experts_checked": 3,
+      "slots_checked": 8,
+      "up_rel_l2_max": 0.0005008,
+      "down_rel_l2_max": 0.0002148,
+      "nonfinite_hid": 0,
+      "nonfinite_pairs": 0
+    },
+    "actual_Q6_K_head": {
+      "bf16_elements": 81920,
+      "bf16_mismatches": 0,
+      "gemv_relative_l2": 8.273e-08,
+      "row_invariance": "PASS F32 and BF16, P2..48"
+    },
+    "tokenizer": {
+      "encode_offsets": 131,
+      "decode": 131,
+      "special_ids": "identical",
+      "malformed_rejections": 2
+    },
+    "api_regression": "PASS",
+    "tool_resume_assertions": 395,
+    "web_assertions": 50
+  },
+  "hgn": [
+    {
+      "model": "flash",
+      "baseline_identity": {
+        "exe": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\gdec-win.exe",
+        "sha256": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+        "modules": [
+          {
+            "ModuleName": "libhipblaslt.dll",
+            "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\libhipblaslt.dll"
+          },
+          {
+            "ModuleName": "amdhip64_7.dll",
+            "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\amdhip64_7.dll"
+          },
+          {
+            "ModuleName": "rocblas.dll",
+            "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\rocblas.dll"
+          }
+        ],
+        "env": {
+          "GDEC_API_MAX_IMAGES": "32",
+          "GDEC_AXPY_SG_OUT": "1",
+          "GDEC_CKPT_TOKENS": "0",
+          "GDEC_DRAFTER": "mtp",
+          "GDEC_EXPERT_PROFILE": "0",
+          "GDEC_GDN_FUSED": "1",
+          "GDEC_GDN_PROFILE": "0",
+          "GDEC_GDN_STREAM": "1",
+          "GDEC_GDN_WAVE": "1",
+          "GDEC_GEMM_SPLITK": "0",
+          "GDEC_GEMM_WMMA": "1",
+          "GDEC_GR_BF16": "1",
+          "GDEC_GR_COMBINE_SIG": "1",
+          "GDEC_GR_PROFILE": "0",
+          "GDEC_HC_FUSE_WRITE": "0",
+          "GDEC_HC_NORHAT": "0",
+          "GDEC_HC_NORM_WAVE": "0",
+          "GDEC_INDEX_F16": "0",
+          "GDEC_INDEX_FUSED2": "1",
+          "GDEC_INDEX_SCORE_PAGED": "0",
+          "GDEC_INDEX_STREAM_SELECT": "1",
+          "GDEC_IPROJ_SOLUTION": "-711",
+          "GDEC_KVSNAP": "0",
+          "GDEC_KVSNAP_MAX_GB": "0",
+          "GDEC_KV_PAGED": "1",
+          "GDEC_KV_POOL_TOKENS": "16384",
+          "GDEC_LT_BUCKET": "1",
+          "GDEC_MOE_LT": "1",
+          "GDEC_MOE_LT_BF16": "1",
+          "GDEC_MOE_MT": "1",
+          "GDEC_MTP_BRANCH_STRIDED": "1",
+          "GDEC_MTP_INGEST_FUSED": "1",
+          "GDEC_MTP_INGEST_KV_ONLY": "1",
+          "GDEC_MTP_INGEST_PROFILE": "0",
+          "GDEC_MTP_PREFILL_TAIL": "0",
+          "GDEC_MTP_TAP_NORM_DUAL": "0",
+          "GDEC_MTP_TAP_NORM_FUSED": "1",
+          "GDEC_NOWARMUP": "1",
+          "GDEC_PARALLEL": "2",
+          "GDEC_PLE_LOOKAHEAD": "1",
+          "GDEC_PLE_PAGE_IO": "0",
+          "GDEC_PLE_PAGE_VERIFY": "0",
+          "GDEC_PP_MOE_OUT": "1",
+          "GDEC_PREFILL_CHUNK": "8192",
+          "GDEC_PREFILL_PROFILE": "0",
+          "GDEC_PREFILL_SKIP_INTERMEDIATE_HEAD": "0",
+          "GDEC_QSA_DENSE_WMMA": "0",
+          "GDEC_QSA_HEAD_INTERLEAVE": "1",
+          "GDEC_QSA_KV_BF16": "1",
+          "GDEC_QSA_KV_FUSED": "1",
+          "GDEC_QSA_WMMA": "1",
+          "GDEC_QSA_WMMA_BTV": "1",
+          "GDEC_RCKPT_MAX": "0",
+          "GDEC_REQUEST_TIMING": "1",
+          "GDEC_RETRY_CHECKPOINT": "1",
+          "GDEC_ROPE_ATTN_SCALE": "0",
+          "GDEC_ROPE_BETA_FAST": "32",
+          "GDEC_ROPE_BETA_SLOW": "1",
+          "GDEC_ROPE_FACTOR": "1",
+          "GDEC_ROPE_ORIGINAL_CTX": "262144",
+          "GDEC_ROUTER_W32": "1",
+          "GDEC_SPEC_ADAPT": "0",
+          "GDEC_SPEC_ADAPT_GREEDY": "0",
+          "GDEC_SPEC_GAMMA": "2",
+          "GDEC_SPEC_PRECISION": "aligned",
+          "GDEC_SPEC_QSA_BATCH": "1",
+          "GDEC_SPEC_SERIAL_ORDER_MR": "1",
+          "GDEC_SPEC_SKIP_UNUSED_FINAL": "1",
+          "GDEC_SPEC_TRACE": "0",
+          "GDEC_V2_BF16_GEMV": "0",
+          "GDEC_V2_DENSE_BACKEND": "upstream",
+          "GDEC_V2_EXACT_DATAFLOW": "0",
+          "GDEC_V2_EXACT_ORDER": "0",
+          "GDEC_V2_EXACT_REUSE": "0",
+          "GDEC_V2_EXPERT_BACKEND": "upstream-prefill",
+          "GDEC_V2_HT_DEQ_EXACT": "1",
+          "GDEC_V2_HT_ORDERED": "1",
+          "GDEC_V2_MOE": "grouped",
+          "GDEC_V2_MOE_DEFER_SCALE": "1",
+          "GDEC_V2_MOE_DOWN_GROUP4": "0",
+          "GDEC_V2_MOE_FUSED_GU": "2",
+          "GDEC_V2_MOE_GU_DOUBLE_BUFFER": "0",
+          "GDEC_V2_MOE_LDS_SYNC": "0",
+          "GDEC_V2_MOE_PERMUTE_Q4": "1",
+          "GDEC_V2_MOE_REDUCE_HAD": "1",
+          "GDEC_V2_NATIVE_HT": "1",
+          "GDEC_V2_PAIRS_F16": "0",
+          "GDEC_W4B_PAIRS_F16": "0",
+          "GDEC_ARENA_SLACK_GB": "0"
+        }
+      },
+      "final_identity": {
+        "exe": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\runtime\\candidate.exe",
+        "sha256": "fa2673d142393f8ce8d19120baf2fccf11f83cd5b2775f929b5b7e2294231990",
+        "modules": [
+          {
+            "ModuleName": "amdhip64_7.dll",
+            "FileName": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\runtime\\amdhip64_7.dll"
+          },
+          {
+            "ModuleName": "rocblas.dll",
+            "FileName": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\runtime\\rocblas.dll"
+          },
+          {
+            "ModuleName": "libhipblaslt.dll",
+            "FileName": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\runtime\\libhipblaslt.dll"
+          }
+        ],
+        "env": {
+          "GDEC_API_MAX_IMAGES": "32",
+          "GDEC_AXPY_SG_OUT": "1",
+          "GDEC_CKPT_TOKENS": "0",
+          "GDEC_DRAFTER": "mtp",
+          "GDEC_EXPERT_PROFILE": "0",
+          "GDEC_GDN_FUSED": "1",
+          "GDEC_GDN_PROFILE": "0",
+          "GDEC_GDN_STREAM": "1",
+          "GDEC_GDN_WAVE": "1",
+          "GDEC_GEMM_SPLITK": "0",
+          "GDEC_GEMM_WMMA": "1",
+          "GDEC_GR_BF16": "1",
+          "GDEC_GR_COMBINE_SIG": "1",
+          "GDEC_GR_PROFILE": "0",
+          "GDEC_HC_FUSE_WRITE": "0",
+          "GDEC_HC_NORHAT": "0",
+          "GDEC_HC_NORM_WAVE": "0",
+          "GDEC_INDEX_F16": "0",
+          "GDEC_INDEX_FUSED2": "1",
+          "GDEC_INDEX_SCORE_PAGED": "0",
+          "GDEC_INDEX_STREAM_SELECT": "1",
+          "GDEC_IPROJ_SOLUTION": "-711",
+          "GDEC_KVSNAP": "0",
+          "GDEC_KVSNAP_MAX_GB": "0",
+          "GDEC_KV_PAGED": "1",
+          "GDEC_KV_POOL_TOKENS": "16384",
+          "GDEC_LT_BUCKET": "1",
+          "GDEC_MOE_LT": "1",
+          "GDEC_MOE_LT_BF16": "1",
+          "GDEC_MOE_MT": "1",
+          "GDEC_MTP_BRANCH_STRIDED": "1",
+          "GDEC_MTP_INGEST_FUSED": "1",
+          "GDEC_MTP_INGEST_KV_ONLY": "1",
+          "GDEC_MTP_INGEST_PROFILE": "0",
+          "GDEC_MTP_PREFILL_TAIL": "0",
+          "GDEC_MTP_TAP_NORM_DUAL": "0",
+          "GDEC_MTP_TAP_NORM_FUSED": "1",
+          "GDEC_NOWARMUP": "1",
+          "GDEC_PARALLEL": "2",
+          "GDEC_PLE_LOOKAHEAD": "1",
+          "GDEC_PLE_PAGE_IO": "0",
+          "GDEC_PLE_PAGE_VERIFY": "0",
+          "GDEC_PP_MOE_OUT": "1",
+          "GDEC_PREFILL_CHUNK": "8192",
+          "GDEC_PREFILL_PROFILE": "0",
+          "GDEC_PREFILL_SKIP_INTERMEDIATE_HEAD": "0",
+          "GDEC_QSA_DENSE_WMMA": "0",
+          "GDEC_QSA_HEAD_INTERLEAVE": "1",
+          "GDEC_QSA_KV_BF16": "1",
+          "GDEC_QSA_KV_FUSED": "1",
+          "GDEC_QSA_WMMA": "1",
+          "GDEC_QSA_WMMA_BTV": "1",
+          "GDEC_RCKPT_MAX": "0",
+          "GDEC_REQUEST_TIMING": "1",
+          "GDEC_RETRY_CHECKPOINT": "1",
+          "GDEC_ROPE_ATTN_SCALE": "0",
+          "GDEC_ROPE_BETA_FAST": "32",
+          "GDEC_ROPE_BETA_SLOW": "1",
+          "GDEC_ROPE_FACTOR": "1",
+          "GDEC_ROPE_ORIGINAL_CTX": "262144",
+          "GDEC_ROUTER_W32": "1",
+          "GDEC_SPEC_ADAPT": "0",
+          "GDEC_SPEC_ADAPT_GREEDY": "0",
+          "GDEC_SPEC_GAMMA": "2",
+          "GDEC_SPEC_PRECISION": "aligned",
+          "GDEC_SPEC_QSA_BATCH": "1",
+          "GDEC_SPEC_SERIAL_ORDER_MR": "1",
+          "GDEC_SPEC_SKIP_UNUSED_FINAL": "1",
+          "GDEC_SPEC_TRACE": "0",
+          "GDEC_V2_BF16_GEMV": "0",
+          "GDEC_V2_DENSE_BACKEND": "upstream",
+          "GDEC_V2_EXACT_DATAFLOW": "0",
+          "GDEC_V2_EXACT_ORDER": "0",
+          "GDEC_V2_EXACT_REUSE": "0",
+          "GDEC_V2_EXPERT_BACKEND": "upstream-prefill",
+          "GDEC_V2_HT_DEQ_EXACT": "1",
+          "GDEC_V2_HT_ORDERED": "1",
+          "GDEC_V2_MOE": "grouped",
+          "GDEC_V2_MOE_DEFER_SCALE": "1",
+          "GDEC_V2_MOE_DOWN_GROUP4": "0",
+          "GDEC_V2_MOE_FUSED_GU": "2",
+          "GDEC_V2_MOE_GU_DOUBLE_BUFFER": "0",
+          "GDEC_V2_MOE_LDS_SYNC": "0",
+          "GDEC_V2_MOE_PERMUTE_Q4": "1",
+          "GDEC_V2_MOE_REDUCE_HAD": "1",
+          "GDEC_V2_NATIVE_HT": "1",
+          "GDEC_V2_PAIRS_F16": "0",
+          "GDEC_W4B_PAIRS_F16": "0",
+          "GDEC_ARENA_SLACK_GB": "0"
+        }
+      },
+      "comparisons": 12,
+      "token_and_logprob_differences": 0,
+      "fixed_seed_identical_repeats": 8
+    },
+    {
+      "model": "q27",
+      "baseline_identity": {
+        "exe": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27\\build\\gdec-win.exe",
+        "sha256": "5cfa7a231292c51f538533a792628491c3d38e72763bbc79b2b0375f13c39c53",
+        "modules": [
+          {
+            "ModuleName": "amdhip64_7.dll",
+            "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27\\build\\amdhip64_7.dll"
+          },
+          {
+            "ModuleName": "libhipblaslt.dll",
+            "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27\\build\\libhipblaslt.dll"
+          },
+          {
+            "ModuleName": "rocblas.dll",
+            "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27\\build\\rocblas.dll"
+          }
+        ],
+        "env": {
+          "GDEC_API_MAX_IMAGES": "8",
+          "GDEC_CKPT_TOKENS": "0",
+          "GDEC_DRAFTER": "mtp",
+          "GDEC_GDN_FUSED": "1",
+          "GDEC_GDN_STREAM": "1",
+          "GDEC_GDN_WAVE": "1",
+          "GDEC_GEMM_WMMA": "1",
+          "GDEC_GR_BF16": "1",
+          "GDEC_INDEX_FUSED2": "1",
+          "GDEC_INDEX_STREAM_SELECT": "1",
+          "GDEC_KVSNAP": "0",
+          "GDEC_KVSNAP_MAX_GB": "0",
+          "GDEC_MOE_LT": "1",
+          "GDEC_MOE_LT_BF16": "1",
+          "GDEC_NOWARMUP": "1",
+          "GDEC_PARALLEL": "1",
+          "GDEC_PP_MOE_OUT": "1",
+          "GDEC_PREFILL_CHUNK": "512",
+          "GDEC_QSA_KV_BF16": "1",
+          "GDEC_QSA_WMMA": "1",
+          "GDEC_QSA_WMMA_BTV": "1",
+          "GDEC_QWEN27_DFLASH": "0",
+          "GDEC_QWEN27_DFLASH_GAMMA": "4",
+          "GDEC_QWEN27_MTP": "1",
+          "GDEC_QWEN27_MTP_GAMMA": "3",
+          "GDEC_QWEN27_PREFILL_MODE": "compensated",
+          "GDEC_RCKPT_MAX": "0",
+          "GDEC_RETRY_CHECKPOINT": "0",
+          "GDEC_ARENA_SLACK_GB": "0"
+        }
+      },
+      "final_identity": {
+        "exe": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\runtime\\candidate.exe",
+        "sha256": "fa2673d142393f8ce8d19120baf2fccf11f83cd5b2775f929b5b7e2294231990",
+        "modules": [
+          {
+            "ModuleName": "libhipblaslt.dll",
+            "FileName": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\runtime\\libhipblaslt.dll"
+          },
+          {
+            "ModuleName": "amdhip64_7.dll",
+            "FileName": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\runtime\\amdhip64_7.dll"
+          },
+          {
+            "ModuleName": "rocblas.dll",
+            "FileName": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\runtime\\rocblas.dll"
+          }
+        ],
+        "env": {
+          "GDEC_API_MAX_IMAGES": "8",
+          "GDEC_CKPT_TOKENS": "0",
+          "GDEC_DRAFTER": "mtp",
+          "GDEC_GDN_FUSED": "1",
+          "GDEC_GDN_STREAM": "1",
+          "GDEC_GDN_WAVE": "1",
+          "GDEC_GEMM_WMMA": "1",
+          "GDEC_GR_BF16": "1",
+          "GDEC_INDEX_FUSED2": "1",
+          "GDEC_INDEX_STREAM_SELECT": "1",
+          "GDEC_KVSNAP": "0",
+          "GDEC_KVSNAP_MAX_GB": "0",
+          "GDEC_MOE_LT": "1",
+          "GDEC_MOE_LT_BF16": "1",
+          "GDEC_NOWARMUP": "1",
+          "GDEC_PARALLEL": "1",
+          "GDEC_PP_MOE_OUT": "1",
+          "GDEC_PREFILL_CHUNK": "512",
+          "GDEC_QSA_KV_BF16": "1",
+          "GDEC_QSA_WMMA": "1",
+          "GDEC_QSA_WMMA_BTV": "1",
+          "GDEC_QWEN27_DFLASH": "0",
+          "GDEC_QWEN27_DFLASH_GAMMA": "4",
+          "GDEC_QWEN27_MTP": "1",
+          "GDEC_QWEN27_MTP_GAMMA": "3",
+          "GDEC_QWEN27_PREFILL_MODE": "compensated",
+          "GDEC_RCKPT_MAX": "0",
+          "GDEC_RETRY_CHECKPOINT": "0",
+          "GDEC_ARENA_SLACK_GB": "0"
+        }
+      },
+      "comparisons": 12,
+      "token_and_logprob_differences": 0,
+      "fixed_seed_identical_repeats": 8
+    }
+  ],
+  "benchmarks": {
+    "gguf-live": {
+      "gamma": 4,
+      "modes": {
+        "0": [
+          {
+            "prompt": "math",
+            "repeat": 0,
+            "wall_seconds": 1.0468610000098124,
+            "completion_tokens": 4,
+            "decode_tps": 21.8,
+            "message_sha256": "f7989042059984da8a1970d191ed8a1563236c118c75abfab0bec7e661d29ac7"
+          },
+          {
+            "prompt": "sort",
+            "repeat": 0,
+            "wall_seconds": 0.6555740999756381,
+            "completion_tokens": 16,
+            "decode_tps": 45.6,
+            "message_sha256": "364f344b344f98af6bdb25e9560e96237aeb26226c7dd536a9ba3ea3728ff859"
+          },
+          {
+            "prompt": "extract",
+            "repeat": 0,
+            "wall_seconds": 0.8287195999873802,
+            "completion_tokens": 24,
+            "decode_tps": 44.9,
+            "message_sha256": "9b7a98790f518d6b566256104cc0fa9e6d40632447b5452c8652a75256cfde1d"
+          },
+          {
+            "prompt": "code",
+            "repeat": 0,
+            "wall_seconds": 1.9743779000127688,
+            "completion_tokens": 93,
+            "decode_tps": 55.1,
+            "message_sha256": "a5f7f47f823db743704a4cbe3560135ee70177f88b62b89ba0e3e4727abaaaec"
+          },
+          {
+            "prompt": "english",
+            "repeat": 0,
+            "wall_seconds": 1.587098199990578,
+            "completion_tokens": 38,
+            "decode_tps": 28.8,
+            "message_sha256": "06ffe67ea4dcb6a8881b25a4353f7d29e1090f449546ae2e432800c97b7167aa"
+          },
+          {
+            "prompt": "math",
+            "repeat": 1,
+            "wall_seconds": 0.4141889999737032,
+            "completion_tokens": 4,
+            "decode_tps": 23.0,
+            "message_sha256": "f7989042059984da8a1970d191ed8a1563236c118c75abfab0bec7e661d29ac7"
+          },
+          {
+            "prompt": "sort",
+            "repeat": 1,
+            "wall_seconds": 0.6121931999805383,
+            "completion_tokens": 16,
+            "decode_tps": 46.9,
+            "message_sha256": "364f344b344f98af6bdb25e9560e96237aeb26226c7dd536a9ba3ea3728ff859"
+          },
+          {
+            "prompt": "extract",
+            "repeat": 1,
+            "wall_seconds": 0.8089578000071924,
+            "completion_tokens": 24,
+            "decode_tps": 45.4,
+            "message_sha256": "9b7a98790f518d6b566256104cc0fa9e6d40632447b5452c8652a75256cfde1d"
+          },
+          {
+            "prompt": "code",
+            "repeat": 1,
+            "wall_seconds": 1.9457530000072438,
+            "completion_tokens": 93,
+            "decode_tps": 55.8,
+            "message_sha256": "a5f7f47f823db743704a4cbe3560135ee70177f88b62b89ba0e3e4727abaaaec"
+          },
+          {
+            "prompt": "english",
+            "repeat": 1,
+            "wall_seconds": 1.5569978000130504,
+            "completion_tokens": 38,
+            "decode_tps": 29.2,
+            "message_sha256": "06ffe67ea4dcb6a8881b25a4353f7d29e1090f449546ae2e432800c97b7167aa"
+          }
+        ],
+        "1": [
+          {
+            "prompt": "math",
+            "repeat": 0,
+            "wall_seconds": 0.6713390000222716,
+            "completion_tokens": 4,
+            "decode_tps": 20.5,
+            "message_sha256": "f7989042059984da8a1970d191ed8a1563236c118c75abfab0bec7e661d29ac7"
+          },
+          {
+            "prompt": "sort",
+            "repeat": 0,
+            "wall_seconds": 0.6554781000013463,
+            "completion_tokens": 16,
+            "decode_tps": 45.1,
+            "message_sha256": "364f344b344f98af6bdb25e9560e96237aeb26226c7dd536a9ba3ea3728ff859"
+          },
+          {
+            "prompt": "extract",
+            "repeat": 0,
+            "wall_seconds": 0.8509112999890931,
+            "completion_tokens": 24,
+            "decode_tps": 43.3,
+            "message_sha256": "9b7a98790f518d6b566256104cc0fa9e6d40632447b5452c8652a75256cfde1d"
+          },
+          {
+            "prompt": "code",
+            "repeat": 0,
+            "wall_seconds": 1.9940439000201877,
+            "completion_tokens": 93,
+            "decode_tps": 53.8,
+            "message_sha256": "a5f7f47f823db743704a4cbe3560135ee70177f88b62b89ba0e3e4727abaaaec"
+          },
+          {
+            "prompt": "english",
+            "repeat": 0,
+            "wall_seconds": 1.6079144999966957,
+            "completion_tokens": 38,
+            "decode_tps": 28.2,
+            "message_sha256": "06ffe67ea4dcb6a8881b25a4353f7d29e1090f449546ae2e432800c97b7167aa"
+          },
+          {
+            "prompt": "math",
+            "repeat": 1,
+            "wall_seconds": 0.3965662000118755,
+            "completion_tokens": 4,
+            "decode_tps": 22.8,
+            "message_sha256": "f7989042059984da8a1970d191ed8a1563236c118c75abfab0bec7e661d29ac7"
+          },
+          {
+            "prompt": "sort",
+            "repeat": 1,
+            "wall_seconds": 0.6310910000174772,
+            "completion_tokens": 16,
+            "decode_tps": 45.8,
+            "message_sha256": "364f344b344f98af6bdb25e9560e96237aeb26226c7dd536a9ba3ea3728ff859"
+          },
+          {
+            "prompt": "extract",
+            "repeat": 1,
+            "wall_seconds": 0.7838867999962531,
+            "completion_tokens": 24,
+            "decode_tps": 45.0,
+            "message_sha256": "9b7a98790f518d6b566256104cc0fa9e6d40632447b5452c8652a75256cfde1d"
+          },
+          {
+            "prompt": "code",
+            "repeat": 1,
+            "wall_seconds": 1.9838034000131302,
+            "completion_tokens": 93,
+            "decode_tps": 54.9,
+            "message_sha256": "a5f7f47f823db743704a4cbe3560135ee70177f88b62b89ba0e3e4727abaaaec"
+          },
+          {
+            "prompt": "english",
+            "repeat": 1,
+            "wall_seconds": 1.5694844000099692,
+            "completion_tokens": 38,
+            "decode_tps": 28.8,
+            "message_sha256": "06ffe67ea4dcb6a8881b25a4353f7d29e1090f449546ae2e432800c97b7167aa"
+          }
+        ]
+      },
+      "identical_output_pairs": 10,
+      "limits": "Sequential off then on; small sample; not GGUF versus HGN; gamma4 no benefit."
+    },
+    "gguf-bench-g8": {
+      "gamma": 8,
+      "modes": {
+        "0": [
+          {
+            "prompt": "code",
+            "repeat": 0,
+            "wall_seconds": 19.741918199986685,
+            "completion_tokens": 512,
+            "decode_tps": 26.7,
+            "message_sha256": "f2aafdf3c6b1a160a35e7fb072d425afd91f7d84703d553bb4dd3b7b98b9508b"
+          },
+          {
+            "prompt": "chinese",
+            "repeat": 0,
+            "wall_seconds": 31.333117600006517,
+            "completion_tokens": 512,
+            "decode_tps": 16.5,
+            "message_sha256": "34cb4176569169944312afce50df4e00ab575f6fcc8bff9bf73af59286656e56"
+          },
+          {
+            "prompt": "code",
+            "repeat": 1,
+            "wall_seconds": 18.528247299982468,
+            "completion_tokens": 512,
+            "decode_tps": 28.4,
+            "message_sha256": "f2aafdf3c6b1a160a35e7fb072d425afd91f7d84703d553bb4dd3b7b98b9508b"
+          },
+          {
+            "prompt": "chinese",
+            "repeat": 1,
+            "wall_seconds": 28.57236710001598,
+            "completion_tokens": 512,
+            "decode_tps": 18.1,
+            "message_sha256": "34cb4176569169944312afce50df4e00ab575f6fcc8bff9bf73af59286656e56"
+          },
+          {
+            "prompt": "code",
+            "repeat": 2,
+            "wall_seconds": 18.347061400010716,
+            "completion_tokens": 512,
+            "decode_tps": 28.4,
+            "message_sha256": "f2aafdf3c6b1a160a35e7fb072d425afd91f7d84703d553bb4dd3b7b98b9508b"
+          },
+          {
+            "prompt": "chinese",
+            "repeat": 2,
+            "wall_seconds": 28.06911839998793,
+            "completion_tokens": 512,
+            "decode_tps": 18.4,
+            "message_sha256": "34cb4176569169944312afce50df4e00ab575f6fcc8bff9bf73af59286656e56"
+          }
+        ],
+        "1": [
+          {
+            "prompt": "code",
+            "repeat": 0,
+            "wall_seconds": 18.847438899974804,
+            "completion_tokens": 512,
+            "decode_tps": 28.0,
+            "message_sha256": "f2aafdf3c6b1a160a35e7fb072d425afd91f7d84703d553bb4dd3b7b98b9508b"
+          },
+          {
+            "prompt": "chinese",
+            "repeat": 0,
+            "wall_seconds": 28.280712300009327,
+            "completion_tokens": 512,
+            "decode_tps": 18.3,
+            "message_sha256": "34cb4176569169944312afce50df4e00ab575f6fcc8bff9bf73af59286656e56"
+          },
+          {
+            "prompt": "code",
+            "repeat": 1,
+            "wall_seconds": 17.906059100001585,
+            "completion_tokens": 512,
+            "decode_tps": 29.1,
+            "message_sha256": "f2aafdf3c6b1a160a35e7fb072d425afd91f7d84703d553bb4dd3b7b98b9508b"
+          },
+          {
+            "prompt": "chinese",
+            "repeat": 1,
+            "wall_seconds": 27.409570300020278,
+            "completion_tokens": 512,
+            "decode_tps": 18.9,
+            "message_sha256": "34cb4176569169944312afce50df4e00ab575f6fcc8bff9bf73af59286656e56"
+          },
+          {
+            "prompt": "code",
+            "repeat": 2,
+            "wall_seconds": 17.93504139999277,
+            "completion_tokens": 512,
+            "decode_tps": 29.0,
+            "message_sha256": "f2aafdf3c6b1a160a35e7fb072d425afd91f7d84703d553bb4dd3b7b98b9508b"
+          },
+          {
+            "prompt": "chinese",
+            "repeat": 2,
+            "wall_seconds": 27.444254200003343,
+            "completion_tokens": 512,
+            "decode_tps": 18.8,
+            "message_sha256": "34cb4176569169944312afce50df4e00ab575f6fcc8bff9bf73af59286656e56"
+          }
+        ]
+      },
+      "identical_output_pairs": 6,
+      "steady_means": {
+        "code": {
+          "off": 28.4,
+          "on": 29.05,
+          "percent": 2.2887323943661997,
+          "samples_per_mode": 2
+        },
+        "chinese": {
+          "off": 18.25,
+          "on": 18.85,
+          "percent": 3.287671232876721,
+          "samples_per_mode": 2
+        }
+      },
+      "limits": "Sequential off then on; small sample; not GGUF versus HGN; gamma4 no benefit."
+    }
+  },
+  "browser": {
+    "profiles_started_inferred_stopped": [
+      "Flash HGN",
+      "27B HGN",
+      "Flash GGUF UD-IQ4_XS"
+    ],
+    "inference": "17+25 = 42",
+    "responsive_widths": [
+      1383,
+      800,
+      390
+    ],
+    "horizontal_document_overflow": false,
+    "console_errors": 0,
+    "keyboard_tab_activation": "PASS",
+    "draft_revert": "PASS",
+    "screenshots": [
+      "build/ui-screens/gguf-running-desktop.jpg",
+      "build/ui-screens/gguf-mobile.jpg",
+      "build/ui-screens/gguf-stopped-desktop.jpg"
+    ]
+  },
+  "not_validated": [
+    "27B GGUF or arbitrary architectures",
+    "QDV1 or DSpine",
+    "image inference",
+    "long contexts beyond8K",
+    "persistent cache resume",
+    "Linux",
+    "autostart registry changes",
+    "randomized extensive quality/performance benchmark"
+  ],
+  "evidence_logs": [
+    "build/wmma-test.log",
+    "build/moe-test.log",
+    "build/ggd-dense-test.log",
+    "build/api-resume.log",
+    "build/regression.log",
+    "build/launcher-web-test.log",
+    "build/gguf-live/",
+    "build/gguf-bench-g8/",
+    "build/hgn-compat/",
+    "build/ui-runtime/"
+  ],
+  "final_web_lifecycle": {
+    "result": "PASS",
+    "engine_sha256": "fa2673d142393f8ce8d19120baf2fccf11f83cd5b2775f929b5b7e2294231990",
+    "web_sha256": "8292be92ba63abc9fcc69e337681f3d51ef3d56dd38d4ed944572b4e6763a530",
+    "modules": [
+      {
+        "ModuleName": "amdhip64_7.dll",
+        "FileName": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\ui-runtime\\build\\amdhip64_7.dll"
+      },
+      {
+        "ModuleName": "libhipblaslt.dll",
+        "FileName": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\ui-runtime\\build\\libhipblaslt.dll"
+      },
+      {
+        "ModuleName": "rocblas.dll",
+        "FileName": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\ui-runtime\\build\\rocblas.dll"
+      }
+    ],
+    "state_after_stop": "idle",
+    "ports_released": [
+      19860,
+      19861
+    ],
+    "web_exit": 0
+  },
+  "cleanup": {
+    "test_ports_released": [
+      19859,
+      19860,
+      19861
+    ],
+    "daily_ports_stopped": [
+      18860,
+      18861,
+      18870,
+      18871
+    ],
+    "production_files_replaced": false,
+    "production_configs_match_previous_record": true
+  }
+}

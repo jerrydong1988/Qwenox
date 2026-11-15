@@ -2998,7 +2998,10 @@ int main(int argc, char** argv) {
     load_overrides();
 
     std::string err;
-    if (!g_tok.load(g_cfg.tokenizer_dir, &err)) {
+    if (!(g_cfg.tokenizer_dir.size() > 5 &&
+          g_cfg.tokenizer_dir.substr(g_cfg.tokenizer_dir.size()-5) == ".gguf"
+              ? g_tok.load_gguf(g_cfg.tokenizer_dir, &err)
+              : g_tok.load(g_cfg.tokenizer_dir, &err))) {
         fprintf(stderr, "qwenox: tokenizer: %s\n", err.c_str());
         return 1;
     }

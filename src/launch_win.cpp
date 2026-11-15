@@ -39,6 +39,7 @@
 #include <string>
 #include <vector>
 #include "rope.h"
+#include "service_conf.h"
 
 #include "launch_win_icon.inc"  // kIconIco：托盘图标（tools/win_icon.py 生成）
 
@@ -49,6 +50,7 @@ std::string g_stamp;                        // 本次启动的时间戳，日志
 HANDLE g_children[2] = {nullptr, nullptr};  // 0 = 引擎，1 = API
 HANDLE g_job = nullptr;
 bool g_own_console = false;  // 控制台是本进程 AllocConsole 出来的（退出前 pause）
+bool g_managed = false; // owned by the web launcher: no tray, dialog or console
 bool g_tray = true;          // false = --console / --check
 bool g_console_on = false;   // 子进程输出是否透传到控制台
 bool g_logs_started = false; // 已开始写子进程日志（出错时提示去看日志）
@@ -91,7 +93,7 @@ void pause_if_own_console() {
     fflush(stderr);
     for (HANDLE h : g_children)
         if (h) TerminateProcess(h, 1);
-    if (g_tray) {
+    if (g_tray && !g_managed) {
         tray_remove();
         if (g_logs_started) {
             if (msgbox("错误：" + msg + "\n\n是否打开日志文件夹？",
@@ -113,7 +115,7 @@ bool file_exists(const std::string& path) {
 
 static bool engine_runtime_key(const std::string& name) {
     return name.compare(0, 5, "GDEC_") == 0 || name == "QWENOX_PLE_IO_TIMEOUT_MS" ||
-           name == "QWENOX_SEND_TIMEOUT";
+           name == "QWENOX_SEND_TIMEOUT" || name == "QWENOX_GG_WMMA";
 }
 
 std::string engine_executable() {
@@ -890,6 +892,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--check") == 0) check_only = true;
         else if (strcmp(argv[i], "--console") == 0) want_console = true;
+        else if (strcmp(argv[i], "--managed") == 0) g_managed = true;
     }
     g_tray = !check_only && !want_console;
     // 高 DPI 屏上托盘图标取对应尺寸、弹框/菜单文字不发糊
@@ -932,17 +935,18 @@ int main(int argc, char** argv) {
     load_conf(g_root + "\\service.conf");
 
     const std::string model_dir = cfg("MODEL_DIR", "models");
-    const std::string model_file = cfg("MODEL_FILE", model_dir + "\\heretic.hgn");
+    const bool gguf = svcconf::conf_marker(g_root + "\\service.conf", "# start_win: weights=") == "gguf";
+    const std::string model_file = cfg(gguf ? "GGUF_FILE" : "MODEL_FILE", model_dir + "\\heretic.hgn");
     // PLE n-gram 表所在文件：默认同 MODEL_FILE（w4b 单文件）；halogen v2 指向独立的 *-ngram.hgn。
-    const std::string ngram_file = cfg("NGRAM_FILE", model_file);
+    const std::string ngram_file = gguf ? model_file : cfg("NGRAM_FILE", model_file);
     const std::string mtp_file =
-        cfg_optional("MTP_FILE", model_dir + "\\heretic-mtp.hgn");
+        gguf ? "" : cfg_optional("MTP_FILE", model_dir + "\\heretic-mtp.hgn");
     const std::string vision_file =
-        cfg_optional("VISION_FILE", model_dir + "\\heretic-vision.hgn");
+        gguf ? cfg_optional("GGUF_VISION_FILE", "") : cfg_optional("VISION_FILE", model_dir + "\\heretic-vision.hgn");
     // 覆盖层（可选的高精度替换张量，叠加在主权重之上、MTP 之前）：默认空。
-    std::string overlay_file = cfg_optional("OVERLAY_FILE", "");
-    const std::string tokenizer_dir =
-        cfg("TOKENIZER_DIR", model_dir + "\\tokenizer");
+    std::string overlay_file = gguf ? "" : cfg_optional("OVERLAY_FILE", "");
+    std::string tokenizer_dir = cfg("TOKENIZER_DIR", model_dir + "\\tokenizer");
+    if (gguf && !file_exists(tokenizer_dir + "\\tokenizer.json")) tokenizer_dir = model_file;
     const std::string api_model = cfg("API_MODEL", "qwen3.8-flash-next");
     printf("API_MODEL=%s\n", api_model.c_str());
     const std::string engine_host = cfg("ENGINE_HOST", engine_net::kDefaultHost);
@@ -963,7 +967,7 @@ int main(int argc, char** argv) {
     // prefill 分段（见 service.conf）：决定 prefill 工作区在 arena 里的尺寸
     // （8192≈6.9 GiB，4096≈3.5 GiB）。0 = 引擎内置默认（Windows 8192）。
     const int prefill_chunk = cfg_int("PREFILL_CHUNK", 0, 0, 1 << 20);
-    const int start_timeout = env_int("START_TIMEOUT", 1800, 30, 86400);
+    const int start_timeout = cfg_int("START_TIMEOUT", 1800, 30, 86400);
 
     sockaddr_in engine_addr{};
     if (!engine_net::address(engine_host, engine_port, &engine_addr))
@@ -985,7 +989,7 @@ int main(int argc, char** argv) {
                 overlay_file.c_str());
         overlay_file.clear();
     }
-    if (!file_exists(tokenizer_dir + "\\tokenizer.json"))
+    if (!(gguf && file_exists(tokenizer_dir)) && !file_exists(tokenizer_dir + "\\tokenizer.json"))
         fail("找不到 tokenizer：" + tokenizer_dir);
     if (!dir_exists("build\\rocblas\\library") || !dir_exists("build\\hipblaslt\\library"))
         fail("缺少 rocBLAS/hipBLASLt kernel db（build\\*\\library）");
@@ -1033,6 +1037,12 @@ int main(int argc, char** argv) {
         if (engine_runtime_key(entry.first))
             SetEnvironmentVariableA(entry.first.c_str(), entry.second.c_str());
     }
+    if (gguf) {
+        const std::string sidecar = cfg_optional("GGUF_MTP_FILE", "");
+        if (!sidecar.empty() && !file_exists(sidecar)) fail("找不到 GGUF MTP：" + sidecar);
+        SetEnvironmentVariableA("GDEC_GGUF_MTP", sidecar.empty() ? "none" : sidecar.c_str());
+    }
+    SetEnvironmentVariableA("GDEC_KVSNAP_DIR", cfg_optional("KVSNAP_DIR", "").c_str());
     SetEnvironmentVariableA("GDEC_KVSNAP", kvsnap_max_gb ? "1" : "0");
     SetEnvironmentVariableA("GDEC_KVSNAP_MAX_GB",
                             std::to_string(kvsnap_max_gb).c_str());
@@ -1151,6 +1161,11 @@ int main(int argc, char** argv) {
     printf("加载模型中，日志：%s%s\n", g_plan.engine_log.c_str(),
            g_tray ? "" : "；Ctrl+C 停止。");
     fflush(stdout);
+    if (g_managed) {
+        DWORD code = 1;
+        run_service(&code);
+        return static_cast<int>(code);
+    }
     if (g_tray) return tray_main();
 
     console_quickedit_off();

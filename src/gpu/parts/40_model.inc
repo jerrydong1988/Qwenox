@@ -1176,15 +1176,17 @@ struct GpuModel {
         // GGUF IQ4_NL table: 90 B rows, no global scale. The batch-read fd is
         // re-pointed at the shard that holds it (mmapped from offset 0).
         g_ple_rb = 90;
-#ifndef _WIN32
         if (g_gguf)
           for (const auto& mp : g_gguf->mappings())
             if (ple_table->data >= mp.base && ple_table->data < mp.base + mp.len) {
               ple_uring_open(mp.path.c_str());
               g_ple_foff = (uint64_t)(ple_table->data - mp.base);
+#ifdef _WIN32
+              g_ple_off_ok = g_ple_win.fh != INVALID_HANDLE_VALUE;
+#else
               g_ple_off_ok = g_ple_fd >= 0;
-            }
 #endif
+            }
       } else {
       memcpy(&ple_tscale, ple_table->data + ple_table->numel(), 4);
       g_ple_off_ok=false;
@@ -1969,9 +1971,9 @@ struct GpuModel {
     }
     const size_t n4 = (size_t)P * d / 4;
     k_f32_to_f16_v4<<<(unsigned)((n4 + 255) / 256), 256, 0, g_str>>>(x, x16, n4);
-    if (!moe_gg_up(g.tgu, g.gate, g.up, x16, tokidx, tiles, ntiles, max_tiles, hid, mid, d,
+    if (!gguf_moe::moe_ggx_up(g.tgu, g.gate, g.up, x16, tokidx, tiles, ntiles, max_tiles, hid, mid, d,
                    g_str) ||
-        !moe_gg_down(g.tdn, g.down, hid, tiles, ntiles, max_tiles, pairs, d, mid, g_str))
+        !gguf_moe::moe_ggx_down(g.tdn, g.down, hid, tiles, ntiles, max_tiles, pairs, d, mid, g_str))
       throw std::runtime_error("moe_gguf: unsupported expert type");
     k_moe_reduce_pw<10><<<dim3((d + 255) / 256, P), 256, 0, g_str>>>(pairs, pairids, pw, acc,
                                                                      P, d);
@@ -2736,6 +2738,11 @@ struct GpuModel {
       v2_deq_bf16(w, d_wbf16, g_str);
       KP_SUB_END();
       wp = d_wbf16;
+    } else if (ggd_dtype(w.dtype)) {
+      if (N * K * 2 > ((size_t)64 << 20))
+        throw std::runtime_error("gemm: weight too big for d_wbf16");
+      ggd_deq_bf16(w, d_wbf16, g_str);
+      wp = d_wbf16;
     } else {
       throw std::runtime_error("gemm: unsupported dtype");
     }
@@ -2848,7 +2855,7 @@ struct GpuModel {
     auto pt0 = std::chrono::steady_clock::now();
     uint64_t N = w.rows, K = w.cols;
     if (!xstride) xstride = K;
-    if (aligned_spec_active() && P > 8) {
+    if (aligned_spec_active() && P > 8 && !(ggd_dtype(w.dtype) && P <= 48)) {
       for (int off=0; off<P; off+=8)
         gemm(w, x+(size_t)off*xstride, y+(size_t)off*N,
              std::min(8,P-off), xstride, xbf ? xbf+(size_t)off*K : nullptr);
@@ -7321,6 +7328,8 @@ struct GpuModel {
   void batch_logits_device(int P) {
     gr_read_b("hyper_connection_mixer", P);
     const WView& lw = wview(ckpt.at("lm_head.weight"));
+    if (ggd_dtype(lw.dtype) && P <= 48 &&
+        gemv_multi_q4cp(lw, d_xb, d_logits_b, P, 2560)) return;
     // The multi-row kernel is specialized for up to eight rows. Chunk larger
     // ngram proposals into groups of eight so lm_head weights are streamed
     // once per group instead of once per row.

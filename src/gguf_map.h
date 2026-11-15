@@ -98,13 +98,102 @@ inline void need(bool c, const std::string& what) {
   if (!c) throw std::runtime_error("gguf_map: " + what);
 }
 
+// f32 -> f16 bits, round to nearest even (subnormals, overflow -> inf)
+inline uint16_t f2h(float f) {
+  uint32_t x;
+  memcpy(&x, &f, 4);
+  const uint32_t sign = (x >> 16) & 0x8000u, a = x & 0x7fffffffu;
+  if (a >= 0x7f800000u) return (uint16_t)(sign | (a > 0x7f800000u ? 0x7e00u : 0x7c00u));
+  if (a >= 0x477ff000u) return (uint16_t)(sign | 0x7c00u);  // rounds to >= 65536
+  if (a < 0x38800000u) {                                     // below 2^-14: subnormal / zero
+    if (a < 0x33000000u) return (uint16_t)sign;              // below 2^-25 -> 0
+    const uint32_t e = a >> 23, m = (a & 0x7fffffu) | 0x800000u, sh = 126 - e;
+    uint32_t r = m >> sh;
+    const uint32_t rem = m & ((1u << sh) - 1), half = 1u << (sh - 1);
+    if (rem > half || (rem == half && (r & 1))) r++;
+    return (uint16_t)(sign | r);
+  }
+  const uint32_t r = a + 0x0fffu + ((a >> 13) & 1u);
+  return (uint16_t)(sign | ((r >> 13) - (112u << 10)));
+}
+
+// Native dense (engine opt-in, default off here so tools keep q8g32): Q4_K /
+// Q5_K / Q6_K / IQ4_XS / IQ4_NL matrices without a column-block map keep their
+// GGUF rows (row map applied) as dtype 100 + GGML type instead of the q8g32
+// requant (1.3-2.0x the bytes; decode GEMV is bandwidth-bound). The token
+// embedding stays q8g32 (gather kernels). Read by 26_kernels_dense_gguf.inc.
+inline bool g_native_dense = false;
+inline bool native_dense_ok(const std::string& name, const gguf::Tensor& t, const Map& blks) {
+  if (!g_native_dense || !blks.empty() || name == "embed_tokens.weight") return false;
+  if (!(t.type == gguf::Q4_K || t.type == gguf::Q5_K || t.type == gguf::Q6_K ||
+        t.type == gguf::IQ4_XS || t.type == gguf::IQ4_NL))
+    return false;
+  uint32_t be, bb;
+  gguf::block_info(t.type, be, bb);
+  return be && t.ne[0] % be == 0 && t.row_bytes() % 4 == 0;  // GEMV stages dwords
+}
+
 // Q8_0 [R][C] -> q8g32 [R'][C'] taking source row rows[r] (identity if empty)
-// and source 32-col block blks[b] (identity if empty).
+// and source 32-col block blks[b] (identity if empty). Other block types (the
+// UD-IQ4_XS lm_head is Q6_K) are dequantized (ggml semantics) and requantized
+// per 32: scale = f16(amax / 127), code = round(v / scale) — 8-bit codes on a
+// 6-bit source, error <= 1/8 of the source quant step.
 inline void add_q8(hgn::Checkpoint& ck, const std::string& name, const gguf::Tensor& t,
                    std::initializer_list<uint64_t> dims, const Map& rows = {},
                    const Map& blks = {}) {
-  need(t.type == gguf::Q8_0, name + " <- " + t.name + ": expected Q8_0, got " +
-                                 gguf::type_name(t.type));
+  if (native_dense_ok(name, t, blks)) {
+    const uint64_t C = t.ne[0], R = t.rows(), rb = t.row_bytes();
+    const uint64_t Ro = rows.empty() ? R : rows.size();
+    hgn::Tensor d = desc(name, 100 + t.type, dims);
+    need(d.numel() == Ro * C, name + ": shape mismatch vs " + t.name);
+    for (uint32_t r : rows) need(r < R, name + ": row map out of range");
+    std::vector<uint8_t> buf(Ro * rb);
+    par_for(Ro, [&](uint64_t r0, uint64_t r1) {
+      for (uint64_t r = r0; r < r1; r++)
+        memcpy(buf.data() + r * rb, t.data + (uint64_t)(rows.empty() ? r : rows[r]) * rb, rb);
+    }, 256);
+    put(ck, d, std::move(buf));
+    return;
+  }
+  if (t.type != gguf::Q8_0) {
+    uint32_t be, bb;
+    gguf::block_info(t.type, be, bb);
+    need(be != 0, name + " <- " + t.name + ": unsupported type " + gguf::type_name(t.type));
+    const uint64_t C = t.ne[0], R = t.rows(), nbs = C / 32, rb = t.row_bytes();
+    need(C % 32 == 0, name + ": cols not a multiple of 32");
+    const uint64_t Ro = rows.empty() ? R : rows.size();
+    const uint64_t nbo = blks.empty() ? nbs : blks.size(), Co = nbo * 32;
+    hgn::Tensor d = desc(name, 8, dims);
+    need(d.numel() == Ro * Co, name + ": shape mismatch vs " + t.name);
+    for (uint32_t r : rows) need(r < R, name + ": row map out of range");
+    for (uint32_t b : blks) need(b < nbs, name + ": block map out of range");
+    std::vector<uint8_t> buf(Ro * Co + Ro * nbo * 2);
+    int8_t* q = (int8_t*)buf.data();
+    uint16_t* s = (uint16_t*)(buf.data() + Ro * Co);
+    par_for(Ro, [&](uint64_t r0, uint64_t r1) {
+      std::vector<float> f(C);
+      for (uint64_t r = r0; r < r1; r++) {
+        gguf::dequant_row(t.type, t.data + (uint64_t)(rows.empty() ? r : rows[r]) * rb, f.data(), C);
+        for (uint64_t b = 0; b < nbo; b++) {
+          const float* v = &f[(blks.empty() ? b : blks[b]) * 32];
+          float amax = 0.f;
+          for (int j = 0; j < 32; j++) amax = std::max(amax, std::fabs(v[j]));
+          const uint16_t sh = f2h(amax / 127.f);
+          s[r * nbo + b] = sh;
+          const float sc = gguf::h2f(sh);
+          const float inv = sc > 0.f ? 1.f / sc : 0.f;
+          for (int j = 0; j < 32; j++) {
+            const float c = std::nearbyint(v[j] * inv);
+            q[r * Co + b * 32 + j] = (int8_t)std::max(-127.f, std::min(127.f, c));
+          }
+        }
+      }
+    }, 256);
+    fprintf(stderr, "gguf_map: %s <- %s requantized %s -> q8g32\n", name.c_str(), t.name.c_str(),
+            gguf::type_name(t.type));
+    put(ck, d, std::move(buf));
+    return;
+  }
   const uint64_t C = t.ne[0], R = t.rows(), nbs = C / 32;
   const uint64_t Ro = rows.empty() ? R : rows.size();
   const uint64_t nbo = blks.empty() ? nbs : blks.size(), Co = nbo * 32;

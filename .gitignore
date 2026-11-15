@@ -12,3 +12,9 @@ data/*.bin
 
 # Local speculative-validation outputs can contain prompts and raw model state.
 /spec-validation-results/
+
+# Generated web launcher assets and local profile state.
+/src/launcher_static_gen.inc
+/launcher_settings.exe
+/data/launcher-profiles.json
+/service.conf.bak
