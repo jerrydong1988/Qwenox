@@ -438,8 +438,8 @@ void messages_impl(const http::Request& q, http::Response* r, http::Stream* st) 
     };
 
     if (!stream) {
-        GenOutcome o = run_generation(
-            spec, nullptr, id,
+        GenOutcome o = run_tool_generation(
+            spec, tool_setup, p.thinking, nullptr, id,
             [st]() { return st == nullptr || !st->disconnected(); });
         std::string reasoning, answer;
         split_reasoning(o.text, p.thinking, &reasoning, &answer);
@@ -569,8 +569,8 @@ void messages_impl(const http::Request& q, http::Response* r, http::Stream* st) 
         if (!ensure_started()) return false;
         return send_anthropic_event(st, "ping", json{{"type", "ping"}});
     };
-    GenOutcome o = run_generation(
-        spec,
+    GenOutcome o = run_tool_generation(
+        spec, tool_setup, p.thinking,
         [&](const std::string& delta) {
             if (st->disconnected()) return false;
             if (!p.thinking) return dispatch_tool_events(parser.feed(delta));

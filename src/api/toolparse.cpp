@@ -731,6 +731,11 @@ std::vector<std::string> StreamParser::schema_types(
     return {};
 }
 
+bool StreamParser::can_resume_call() const {
+    return enabled_ && !partial_ && error_.empty() && state_ != State::Broken &&
+           (state_ != State::Text || buffer_.find(kToolOpen) != std::string::npos);
+}
+
 std::vector<Event> StreamParser::pump(bool final) {
     std::vector<Event> events;
     if (!enabled_) {

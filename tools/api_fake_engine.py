@@ -6,6 +6,7 @@ Run this on port 18730, start gdec-api with --engine 127.0.0.1:18730 and
 """
 import argparse
 import json
+import re
 from pathlib import Path
 import select
 import socket
@@ -24,6 +25,7 @@ INFO_FILE = None
 TRACE = []
 TRACE_LOCK = threading.Lock()
 IDS_LOG = []  # Test-only wire evidence for count/literal-range requests.
+RESUME_LOG = []
 
 
 def handle(conn):
@@ -125,6 +127,11 @@ def handle(conn):
                     send_line(conn, json.dumps(IDS_LOG))
                     IDS_LOG.clear()
                 continue
+            if line == "RESUMELOG":
+                with TRACE_LOCK:
+                    send_line(conn, json.dumps(RESUME_LOG))
+                    RESUME_LOG.clear()
+                continue
             if line.startswith("X "):
                 record_cancel(int(line.split()[1]))
                 continue
@@ -175,6 +182,51 @@ def handle(conn):
                 continue
 
             seed = int(fields[fields.index("SAMPLE") + 5]) if "SAMPLE" in fields else 0
+            # Byte-tokenizer fixtures: identify the case from the original prompt
+            # even in greedy mode (which carries no seed in the wire protocol).
+            prompt = bytes(t - 1024 for t in ids if 1024 <= t < 1280).decode(errors="replace")
+            scenario = re.search(r"resume-case-(\d+)", prompt)
+            if scenario:
+                case = int(scenario[1])
+                call = "<tool_call>\n<function=read_file>\n<parameter=path>\na\n</parameter>\n</function>\n</tool_call>"
+                first = {1: call.split("\n</parameter>")[0],
+                         2: "</think>\n\n<tool_call>",
+                         3: call + "<tool_call>",
+                         4: call.replace("read_file", "unknown_file"),
+                         9: "<tool_call>garbage"}.get(case, "<tool_call>")
+                resumed = prompt.endswith(first)
+                cap = int(fields[2])
+                bias = []
+                if "BIAS" in fields:
+                    at = fields.index("BIAS"); count = int(fields[at + 1])
+                    bias = [(int(fields[at+2+i*2]), float(fields[at+3+i*2])) for i in range(count)]
+                with TRACE_LOCK:
+                    RESUME_LOG.append({"case": case, "resumed": resumed, "ids": ids,
+                                       "max": cap, "bias": bias, "sampled": "SAMPLE" in fields,
+                                       "connection": id(conn)})
+                if not resumed:
+                    text = first
+                    reason = "length" if case == 7 else "done"
+                elif case in (5, 8):
+                    text = "x" * cap
+                    reason = "length"
+                elif case == 6:
+                    text, reason = "", "done"
+                elif case == 10:
+                    text, reason = "some text HALT more", "done"
+                elif case == 11:
+                    # Keep generating during the repair until the HTTP client
+                    # disconnects. The existing cancellation trace records X.
+                    cancellable(req, 616162)
+                    continue
+                else:
+                    text = call[len(first):] if case == 1 else call[len("<tool_call>"):]
+                    reason = "done"
+                tokens = [1024 + b for b in text.encode()][:cap]
+                for token in tokens:
+                    send_line(conn, f"T {req} {token} -0.1")
+                send_line(conn, f"D {req} {reason} {n_ids} {len(tokens)} 1.0 2.0 0 0 0 0 0")
+                continue
             # api_tool_failure_test uses the byte-only synthetic tokenizer.
             if 717100 <= seed <= 717116:
                 valid = "<tool_call>\n<function=read_file>\n<parameter=path>\na\n</parameter>\n</function>\n</tool_call>"

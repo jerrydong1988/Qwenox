@@ -70,6 +70,9 @@ class StreamParser {
     const std::string& content() const { return content_; }
     const std::vector<ToolCall>& calls() const { return calls_; }
     bool has_partial_call() const { return partial_; }
+    // Before finish(): more tokens can still close this call. Broken framing
+    // or a known schema error must not trigger an automatic continuation.
+    bool can_resume_call() const;
     // Bounded diagnostic only: never includes argument values or guesses a tool.
     const std::string& error() const { return error_; }
     // Bounded names, zero-based locations and rule identifiers; no argument values.

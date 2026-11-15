@@ -698,6 +698,7 @@ struct GenOutcome {
     int served_max_tokens = 0;
     int clamped_from = 0;
     std::vector<float> logprobs;
+    std::vector<int> tokens;  // exact generated ids for a same-slot continuation
     std::string stop_hit;
     bool hit_stop = false;
     bool client_gone = false;
@@ -709,7 +710,8 @@ struct GenOutcome {
 GenOutcome run_generation(GenSpec& spec,
                           const std::function<bool(const std::string&)>& on_delta,
                           const std::string& log_tag,
-                          const std::function<bool()>& on_wait = {}) {
+                          const std::function<bool()>& on_wait = {},
+                          SlotGuard* held_slot = nullptr) {
     GenOutcome out;
     std::function<bool()> wait_callback;
     if (on_wait) {
@@ -719,7 +721,9 @@ GenOutcome run_generation(GenSpec& spec,
             return keep_waiting;
         };
     }
-    SlotGuard slot(wait_callback);
+    std::unique_ptr<SlotGuard> own_slot;
+    if (!held_slot) own_slot = std::make_unique<SlotGuard>(wait_callback);
+    SlotGuard& slot = held_slot ? *held_slot : *own_slot;
     if (!slot.acquired()) {
         out.client_gone = true;
         return out;
@@ -859,6 +863,7 @@ GenOutcome run_generation(GenSpec& spec,
     out.commit = r.commit;
     out.proposed = r.proposed;
     out.logprobs = std::move(r.logprobs);
+    out.tokens = std::move(r.tokens);
 
     if (r.reason == "error") {
         // Concurrent requests share one KV pool; when it runs out the engine
@@ -2188,6 +2193,100 @@ class ThinkSplitter {
     bool split_ = false, content_started_ = false;
 };
 
+// Adapted from upstream 9597795's open-tool-call guard. Keep the maintained
+// schema/error contract: only unfinished, still-valid framing may resume;
+// unknown tools and invalid arguments remain explicit invalid_tool_call errors.
+GenOutcome run_tool_generation(GenSpec& spec, const ToolSetup& tools, bool thinking,
+                               const std::function<bool(const std::string&)>& on_delta,
+                               const std::string& log_tag,
+                               const std::function<bool()>& on_wait = {}) {
+    // Vision payloads are consumed by the first generation. Forced tool choices
+    // have an artificial parser prefix; neither is part of this narrow backport.
+    if (!tools.enabled() || tools.choice.forced() || !spec.mrope_grids.empty() ||
+        std::find(spec.stop.begin(), spec.stop.end(), "</tool_call>") != spec.stop.end())
+        return run_generation(spec, on_delta, log_tag, on_wait);
+
+    SlotGuard slot(on_wait);
+    GenOutcome out = run_generation(spec, on_delta, log_tag, on_wait, &slot);
+    if (out.client_gone || out.hit_stop || out.reason != "stop") return out;
+    std::string reasoning, answer;
+    split_reasoning(out.text, thinking, &reasoning, &answer);
+    toolparse::StreamParser probe(tools.tools, nullptr);
+    probe.feed(answer);
+    if (!probe.can_resume_call()) return out;
+
+    // Count against the original effective budget (including any context clamp).
+    // An EOS on the very last allowed token must not buy another generation.
+    const long long remaining = static_cast<long long>(out.served_max_tokens) - out.n_gen;
+    const long long context_left = static_cast<long long>(engine_capacity().context) -
+                                  static_cast<long long>(spec.ids.size() + out.tokens.size());
+    if (remaining <= 0 || context_left <= 0 || out.tokens.empty()) return out;
+    static const int resume_cap = [] {
+        const char* env = std::getenv("QWENOX_TOOL_CALL_RESUME_MAX");
+        int value = 8192;
+        if (env && *env) {
+            int parsed = 0;
+            const char* end = env + std::strlen(env);
+            const auto r = std::from_chars(env, end, parsed);
+            if (r.ec == std::errc() && r.ptr == end && parsed > 0) value = parsed;
+        }
+        return value;
+    }();
+    GenSpec resume = spec;
+    resume.ids.insert(resume.ids.end(), out.tokens.begin(), out.tokens.end());
+    resume.snaps.clear();
+    resume.max_tokens = static_cast<int>(std::min<long long>(resume_cap,
+                                                            std::min(remaining, context_left)));
+    if (resume.sample) {
+        // Use this branch's actual engine EOS set as well as endoftext; an
+        // upstream tokenizer's named ids alone need not cover the wire set.
+        std::vector<int> eos = g_eos;
+        eos.push_back(g_tok.added_token_id("<|endoftext|>"));
+        for (int id : eos) {
+            if (id < 0) continue;
+            const auto existing = std::find_if(resume.bias.begin(), resume.bias.end(),
+                                               [id](const auto& b) { return b.first == id; });
+            if (existing == resume.bias.end()) resume.bias.emplace_back(id, -100.0f);
+        }
+    }
+    resume.stop.push_back("</tool_call>");
+    fprintf(stderr, "REQ %s tool-call resume start max=%d\n", log_tag.c_str(), resume.max_tokens);
+    // Exactly one attempt: streamed bytes cannot be taken back or replayed.
+    // A greedy early EOS can fail again; the existing explicit error is retained.
+    GenOutcome rest = run_generation(resume, on_delta, log_tag, on_wait, &slot);
+    out.text += rest.text;
+    out.n_gen += rest.n_gen;
+    out.prefill_ms += rest.prefill_ms;
+    out.decode_ms += rest.decode_ms;
+    out.rounds += rest.rounds;
+    out.commit += rest.commit;
+    out.proposed += rest.proposed;
+    out.tokens.insert(out.tokens.end(), rest.tokens.begin(), rest.tokens.end());
+    out.logprobs.insert(out.logprobs.end(), rest.logprobs.begin(), rest.logprobs.end());
+    out.reason = rest.reason;
+    out.hit_stop = rest.hit_stop;
+    out.stop_hit = rest.stop_hit;
+    out.client_gone = rest.client_gone;
+    if (out.client_gone) return out;
+    const bool closed = rest.hit_stop && rest.stop_hit == "</tool_call>";
+    if (closed) {
+        // The internal stop stripped the closer. Restore it through the same
+        // streaming parser, then let normal schema validation decide success.
+        out.text += "</tool_call>";
+        if (on_delta && !on_delta("</tool_call>")) out.client_gone = true;
+        out.hit_stop = false;  // this was not a caller-supplied stop_sequence
+        out.stop_hit.clear();
+    } else if (rest.reason == "length" && resume_cap < remaining &&
+               resume_cap < context_left && rest.n_gen >= resume_cap) {
+        // Our repair ceiling is not client/context exhaustion. The unfinished
+        // call will be reported as invalid_tool_call, preserving local behavior.
+        out.reason = "stop";
+    }
+    fprintf(stderr, "REQ %s tool-call resume %s generated=%lld\n", log_tag.c_str(),
+            closed ? "closed" : "unfinished", rest.n_gen);
+    return out;
+}
+
 // POST /v1/chat/completions
 void handle_chat(const http::Request& q, http::Response* r, http::Stream* st) {
     json mutable_body = parse_body(q);
@@ -2265,8 +2364,8 @@ void handle_chat(const http::Request& q, http::Response* r, http::Stream* st) {
     };
 
     if (!stream) {
-        GenOutcome o = run_generation(
-            spec, nullptr, id,
+        GenOutcome o = run_tool_generation(
+            spec, tool_setup, thinking_enabled, nullptr, id,
             [st]() { return st == nullptr || !st->disconnected(); });
         std::string reasoning, answer;
         if (tool_setup.choice.forced())
@@ -2348,8 +2447,8 @@ void handle_chat(const http::Request& q, http::Response* r, http::Stream* st) {
         if (st->disconnected()) return false;
         return send_frame(st, text_chunk("content", ""));
     };
-    GenOutcome o = run_generation(
-        spec,
+    GenOutcome o = run_tool_generation(
+        spec, tool_setup, thinking_enabled,
         [&](const std::string& d) {
             if (st->disconnected()) return false;
             if (tool_setup.choice.forced()) return dispatch_tool_events(parser.feed(d));
@@ -2507,8 +2606,8 @@ void handle_responses(const http::Request& q, http::Response* r, http::Stream* s
     };
 
     if (!stream) {
-        GenOutcome o = run_generation(
-            spec, nullptr, id,
+        GenOutcome o = run_tool_generation(
+            spec, tool_setup, thinking_enabled, nullptr, id,
             [st]() { return st == nullptr || !st->disconnected(); });
         std::string reasoning, answer;
         if (tool_setup.choice.forced())
@@ -2693,8 +2792,8 @@ void handle_responses(const http::Request& q, http::Response* r, http::Stream* s
         // SSE comment as a protocol-neutral keep-alive during queue/prefill.
         return st->send_raw(": keep-alive\n\n");
     };
-    GenOutcome o = run_generation(
-        spec,
+    GenOutcome o = run_tool_generation(
+        spec, tool_setup, thinking_enabled,
         [&](const std::string& delta) {
             if (st->disconnected()) return false;
             if (tool_setup.choice.forced()) return dispatch_tool_events(parser.feed(delta));

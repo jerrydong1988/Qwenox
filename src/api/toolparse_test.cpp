@@ -151,6 +151,7 @@ int main() {
         std::string(200, 'x');
     for (const auto& event : partial.feed(unfinished))
         if (event.type == toolparse::EventType::ArgumentsDelta) partial_args += event.data;
+    check(partial.can_resume_call(), "unfinished parameter can resume before finalization");
     for (const auto& event : partial.finish())
         if (event.type == toolparse::EventType::ArgumentsDelta) partial_args += event.data;
     check(partial.has_partial_call() && partial.calls().empty(), "incomplete call state");
@@ -185,6 +186,12 @@ int main() {
     missing_required.finish();
     check(missing_required.has_partial_call() && missing_required.calls().empty(),
           "missing required argument is not returned as a complete call");
+    check(!missing_required.can_resume_call(), "schema error cannot trigger resume");
+    toolparse::StreamParser bare_open(tools(), make_id);
+    bare_open.feed("<tool_call>");
+    check(bare_open.can_resume_call(), "bare opener can resume");
+    bare_open.feed("garbage");
+    check(!bare_open.can_resume_call(), "broken framing cannot resume");
 
     toolparse::StreamParser unknown_tool(tools(), make_id);
     unknown_tool.feed("<tool_call>\n<function=delete_file>\n</function>\n</tool_call>");
