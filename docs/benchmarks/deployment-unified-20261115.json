@@ -1,0 +1,697 @@
+{
+  "date_local": "2026-11-15",
+  "updated_utc": "2026-11-15T13:59:08.511521+00:00",
+  "source_commit": "a2619ebf6f6e84b8437767b2e76451cce37097b2",
+  "engine_api_native_source_commit": "be74babbb0f53c96a678f4b5e3d9b0faf9ff2907",
+  "components": {
+    "build/gdec-win.exe": {
+      "path": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\qwenox-release.exe",
+      "sha256": "fa2673d142393f8ce8d19120baf2fccf11f83cd5b2775f929b5b7e2294231990"
+    },
+    "build/gdec-api-win.exe": {
+      "path": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\qwenox-api.exe",
+      "sha256": "10ed272329652c571490bcfc4e7e9ac2cedd9ac6d422b693fd74b3de895f6fee"
+    },
+    "start_win.exe": {
+      "path": "C:\\Users\\Jerry\\Projects\\qwenox-gguf-launcher-20261115\\build\\native-launcher.exe",
+      "sha256": "c30a62b2f22ea1231b0fa1a840d90a6d2b07d14cf7730a98dc148aa9c6f9d74e"
+    },
+    "launcher_settings.exe": {
+      "path": "C:\\Users\\Jerry\\Projects\\qwenox-launcher-redesign-20261115\\build\\launcher_settings.exe",
+      "sha256": "4e71cf7229e3607749e46e5b2805bd089a4ee80acdecf22143db83d6b17d87f7"
+    }
+  },
+  "desktop": {
+    "path": "C:\\Users\\Jerry\\Desktop\\Qwenox 启动器.lnk",
+    "target": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\launcher_settings.exe",
+    "arguments": "--host 127.0.0.1 --port 8729",
+    "working_directory": "C:\\Users\\Jerry\\llama.cpp\\Qwenox",
+    "icon": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\qwenox-desktop-brand.ico,0",
+    "sha256": "BE397F2AEEFEF87A5AF9BD473C2FF1A34289D2E8176DC245C7FB5EE3514DFF4C"
+  },
+  "management_url": "http://127.0.0.1:8729/",
+  "daily_api": "http://127.0.0.1:18861/v1",
+  "default_profile": "Flash HGN · 256K",
+  "profile_summary": {
+    "Flash HGN · 256K": {
+      "weights_ver": "v2",
+      "API_MODEL": "qwen3.8-flash-next",
+      "MAX_CONTEXT": "262144",
+      "PARALLEL": "2",
+      "PREFILL_CHUNK": "8192",
+      "MTP_GAMMA": "2"
+    },
+    "27B HGN · 8K": {
+      "weights_ver": "v1",
+      "API_MODEL": "qwen3.8-27b-hgn",
+      "MAX_CONTEXT": "8192",
+      "PARALLEL": "1",
+      "PREFILL_CHUNK": "512",
+      "MTP_GAMMA": "0"
+    },
+    "Flash GGUF · UD-IQ4_XS · 8K": {
+      "weights_ver": "gguf",
+      "API_MODEL": "qwen3.8-flash-next-gguf",
+      "MAX_CONTEXT": "8192",
+      "PARALLEL": "2",
+      "PREFILL_CHUNK": "512",
+      "MTP_GAMMA": "8"
+    }
+  },
+  "validation": [
+    {
+      "label": "flash-installed",
+      "startup_seconds": 31.2,
+      "validation_elapsed_seconds": 41.1,
+      "arithmetic_pass": 2,
+      "tool_call_pass": true,
+      "fixed_seed_identical": true,
+      "fixed_seed_repetitions": 3,
+      "health": {
+        "status": "ok",
+        "model": "qwen3.8-flash-next",
+        "endpoints": [
+          "/v1/chat/completions",
+          "/v1/completions",
+          "/v1/models",
+          "/v1/messages",
+          "/v1/messages/count_tokens",
+          "/v1/tokenize",
+          "/v1/detokenize",
+          "/v1/responses",
+          "/dashboard",
+          "/reqstat/summary",
+          "/reqstat/tail",
+          "/metrics/live"
+        ],
+        "rope_scaling": null,
+        "context": 262144,
+        "slot_ctx": 262144,
+        "slots": 2,
+        "kv_pool": 524288,
+        "engine_info_ready": true,
+        "queued": 0,
+        "busy": false,
+        "in_flight": 0,
+        "busy_for_s": 0,
+        "decode": "greedy at explicit temperature 0; Qwen-default sampling (temp 1.0, top_k 20, top_p 0.95) when temperature is omitted; sampled at temperature > 0",
+        "prompt_cache": {
+          "enabled": false,
+          "cap_mb": 0
+        },
+        "tool_calls": {
+          "parsed": true,
+          "template_injection": true,
+          "wire_format": "qwen-xml (<function=>/<parameter=>)",
+          "streaming": true,
+          "tool_choice": [
+            "auto",
+            "none",
+            "required",
+            "named"
+          ],
+          "parallel_tool_calls": true,
+          "constrained_decoding": false
+        },
+        "vision": {
+          "accepted": true,
+          "chat_content_type": "image_url",
+          "responses_content_type": "input_image",
+          "inline_data_url": true,
+          "bare_base64": true,
+          "http_urls": false,
+          "formats": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "animated_webp": false,
+          "webp_decoder": "libwebp",
+          "webp_decoder_version": "1.6.0",
+          "max_images": 32,
+          "max_total_patches": 262144,
+          "max_visual_tokens": 65536,
+          "video": false,
+          "runtime": "native-cpp"
+        },
+        "supported": [
+          "reasoning_effort",
+          "enable_thinking",
+          "preserve_thinking",
+          "stop",
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens",
+          "stream",
+          "seed",
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "logit_bias",
+          "logprobs",
+          "tools",
+          "tool_choice",
+          "parallel_tool_calls",
+          "image_url",
+          "input_image",
+          "add_vision_id"
+        ],
+        "token_budget_aliases": [
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens"
+        ],
+        "max_tokens_default": "unbounded (budget = context minus prompt length)",
+        "error_format": "openai",
+        "accepted_but_ignored": [
+          "n",
+          "drafter"
+        ],
+        "partial": [],
+        "sampling": {
+          "implemented": [
+            "temperature",
+            "top_p",
+            "top_k",
+            "min_p",
+            "seed",
+            "presence_penalty",
+            "frequency_penalty",
+            "logit_bias",
+            "logprobs"
+          ]
+        },
+        "max_tokens_cap": null,
+        "reasoning_effort_values": [
+          "high",
+          "low",
+          "medium",
+          "minimal",
+          "xhigh"
+        ],
+        "server_overrides": {}
+      },
+      "modules": [
+        {
+          "ModuleName": "amdhip64_7.dll",
+          "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\amdhip64_7.dll"
+        },
+        {
+          "ModuleName": "libhipblaslt.dll",
+          "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\libhipblaslt.dll"
+        },
+        {
+          "ModuleName": "rocblas.dll",
+          "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\rocblas.dll"
+        }
+      ]
+    },
+    {
+      "label": "q27-standalone-installed",
+      "startup_seconds": 29.2,
+      "validation_elapsed_seconds": 47.5,
+      "arithmetic_pass": 2,
+      "tool_call_pass": true,
+      "fixed_seed_identical": true,
+      "fixed_seed_repetitions": 3,
+      "health": {
+        "status": "ok",
+        "model": "qwen3.8-27b-hgn",
+        "endpoints": [
+          "/v1/chat/completions",
+          "/v1/completions",
+          "/v1/models",
+          "/v1/messages",
+          "/v1/messages/count_tokens",
+          "/v1/tokenize",
+          "/v1/detokenize",
+          "/v1/responses",
+          "/dashboard",
+          "/reqstat/summary",
+          "/reqstat/tail",
+          "/metrics/live"
+        ],
+        "rope_scaling": null,
+        "context": 8192,
+        "slot_ctx": 8192,
+        "slots": 1,
+        "kv_pool": 8192,
+        "engine_info_ready": true,
+        "queued": 0,
+        "busy": false,
+        "in_flight": 0,
+        "busy_for_s": 0,
+        "decode": "greedy at explicit temperature 0; Qwen-default sampling (temp 1.0, top_k 20, top_p 0.95) when temperature is omitted; sampled at temperature > 0",
+        "prompt_cache": {
+          "enabled": false,
+          "cap_mb": 0
+        },
+        "tool_calls": {
+          "parsed": true,
+          "template_injection": true,
+          "wire_format": "qwen-xml (<function=>/<parameter=>)",
+          "streaming": true,
+          "tool_choice": [
+            "auto",
+            "none",
+            "required",
+            "named"
+          ],
+          "parallel_tool_calls": true,
+          "constrained_decoding": false
+        },
+        "vision": {
+          "accepted": false,
+          "chat_content_type": "image_url",
+          "responses_content_type": "input_image",
+          "inline_data_url": true,
+          "bare_base64": true,
+          "http_urls": false,
+          "formats": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "animated_webp": false,
+          "webp_decoder": "libwebp",
+          "webp_decoder_version": "1.6.0",
+          "max_images": 8,
+          "max_total_patches": 262144,
+          "max_visual_tokens": 65536,
+          "video": false,
+          "runtime": "native-cpp"
+        },
+        "supported": [
+          "reasoning_effort",
+          "enable_thinking",
+          "preserve_thinking",
+          "stop",
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens",
+          "stream",
+          "seed",
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "logit_bias",
+          "logprobs",
+          "tools",
+          "tool_choice",
+          "parallel_tool_calls"
+        ],
+        "token_budget_aliases": [
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens"
+        ],
+        "max_tokens_default": "unbounded (budget = context minus prompt length)",
+        "error_format": "openai",
+        "accepted_but_ignored": [
+          "n",
+          "drafter"
+        ],
+        "partial": [],
+        "sampling": {
+          "implemented": [
+            "temperature",
+            "top_p",
+            "top_k",
+            "min_p",
+            "seed",
+            "presence_penalty",
+            "frequency_penalty",
+            "logit_bias",
+            "logprobs"
+          ]
+        },
+        "max_tokens_cap": null,
+        "reasoning_effort_values": [
+          "high",
+          "low",
+          "medium",
+          "minimal",
+          "xhigh"
+        ],
+        "server_overrides": {}
+      },
+      "modules": [
+        {
+          "ModuleName": "amdhip64_7.dll",
+          "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27\\build\\amdhip64_7.dll"
+        },
+        {
+          "ModuleName": "libhipblaslt.dll",
+          "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27\\build\\libhipblaslt.dll"
+        },
+        {
+          "ModuleName": "rocblas.dll",
+          "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27\\build\\rocblas.dll"
+        }
+      ]
+    },
+    {
+      "label": "q27-unified-installed",
+      "startup_seconds": 30.2,
+      "validation_elapsed_seconds": 48.5,
+      "arithmetic_pass": 2,
+      "tool_call_pass": true,
+      "fixed_seed_identical": true,
+      "fixed_seed_repetitions": 3,
+      "health": {
+        "status": "ok",
+        "model": "qwen3.8-27b-hgn",
+        "endpoints": [
+          "/v1/chat/completions",
+          "/v1/completions",
+          "/v1/models",
+          "/v1/messages",
+          "/v1/messages/count_tokens",
+          "/v1/tokenize",
+          "/v1/detokenize",
+          "/v1/responses",
+          "/dashboard",
+          "/reqstat/summary",
+          "/reqstat/tail",
+          "/metrics/live"
+        ],
+        "rope_scaling": null,
+        "context": 8192,
+        "slot_ctx": 8192,
+        "slots": 1,
+        "kv_pool": 8192,
+        "engine_info_ready": true,
+        "queued": 0,
+        "busy": false,
+        "in_flight": 0,
+        "busy_for_s": 0,
+        "decode": "greedy at explicit temperature 0; Qwen-default sampling (temp 1.0, top_k 20, top_p 0.95) when temperature is omitted; sampled at temperature > 0",
+        "prompt_cache": {
+          "enabled": false,
+          "cap_mb": 0
+        },
+        "tool_calls": {
+          "parsed": true,
+          "template_injection": true,
+          "wire_format": "qwen-xml (<function=>/<parameter=>)",
+          "streaming": true,
+          "tool_choice": [
+            "auto",
+            "none",
+            "required",
+            "named"
+          ],
+          "parallel_tool_calls": true,
+          "constrained_decoding": false
+        },
+        "vision": {
+          "accepted": false,
+          "chat_content_type": "image_url",
+          "responses_content_type": "input_image",
+          "inline_data_url": true,
+          "bare_base64": true,
+          "http_urls": false,
+          "formats": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "animated_webp": false,
+          "webp_decoder": "libwebp",
+          "webp_decoder_version": "1.6.0",
+          "max_images": 32,
+          "max_total_patches": 262144,
+          "max_visual_tokens": 65536,
+          "video": false,
+          "runtime": "native-cpp"
+        },
+        "supported": [
+          "reasoning_effort",
+          "enable_thinking",
+          "preserve_thinking",
+          "stop",
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens",
+          "stream",
+          "seed",
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "logit_bias",
+          "logprobs",
+          "tools",
+          "tool_choice",
+          "parallel_tool_calls"
+        ],
+        "token_budget_aliases": [
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens"
+        ],
+        "max_tokens_default": "unbounded (budget = context minus prompt length)",
+        "error_format": "openai",
+        "accepted_but_ignored": [
+          "n",
+          "drafter"
+        ],
+        "partial": [],
+        "sampling": {
+          "implemented": [
+            "temperature",
+            "top_p",
+            "top_k",
+            "min_p",
+            "seed",
+            "presence_penalty",
+            "frequency_penalty",
+            "logit_bias",
+            "logprobs"
+          ]
+        },
+        "max_tokens_cap": null,
+        "reasoning_effort_values": [
+          "high",
+          "low",
+          "medium",
+          "minimal",
+          "xhigh"
+        ],
+        "server_overrides": {}
+      },
+      "modules": [
+        {
+          "ModuleName": "libhipblaslt.dll",
+          "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\libhipblaslt.dll"
+        },
+        {
+          "ModuleName": "rocblas.dll",
+          "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\rocblas.dll"
+        },
+        {
+          "ModuleName": "amdhip64_7.dll",
+          "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\amdhip64_7.dll"
+        }
+      ]
+    },
+    {
+      "label": "gguf-unified-installed",
+      "startup_seconds": 26.2,
+      "validation_elapsed_seconds": 34.2,
+      "arithmetic_pass": 2,
+      "tool_call_pass": true,
+      "fixed_seed_identical": true,
+      "fixed_seed_repetitions": 3,
+      "health": {
+        "status": "ok",
+        "model": "qwen3.8-flash-next-gguf",
+        "endpoints": [
+          "/v1/chat/completions",
+          "/v1/completions",
+          "/v1/models",
+          "/v1/messages",
+          "/v1/messages/count_tokens",
+          "/v1/tokenize",
+          "/v1/detokenize",
+          "/v1/responses",
+          "/dashboard",
+          "/reqstat/summary",
+          "/reqstat/tail",
+          "/metrics/live"
+        ],
+        "rope_scaling": null,
+        "context": 8192,
+        "slot_ctx": 8192,
+        "slots": 2,
+        "kv_pool": 16384,
+        "engine_info_ready": true,
+        "queued": 0,
+        "busy": false,
+        "in_flight": 0,
+        "busy_for_s": 0,
+        "decode": "greedy at explicit temperature 0; Qwen-default sampling (temp 1.0, top_k 20, top_p 0.95) when temperature is omitted; sampled at temperature > 0",
+        "prompt_cache": {
+          "enabled": false,
+          "cap_mb": 0
+        },
+        "tool_calls": {
+          "parsed": true,
+          "template_injection": true,
+          "wire_format": "qwen-xml (<function=>/<parameter=>)",
+          "streaming": true,
+          "tool_choice": [
+            "auto",
+            "none",
+            "required",
+            "named"
+          ],
+          "parallel_tool_calls": true,
+          "constrained_decoding": false
+        },
+        "vision": {
+          "accepted": false,
+          "chat_content_type": "image_url",
+          "responses_content_type": "input_image",
+          "inline_data_url": true,
+          "bare_base64": true,
+          "http_urls": false,
+          "formats": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "animated_webp": false,
+          "webp_decoder": "libwebp",
+          "webp_decoder_version": "1.6.0",
+          "max_images": 32,
+          "max_total_patches": 262144,
+          "max_visual_tokens": 65536,
+          "video": false,
+          "runtime": "native-cpp"
+        },
+        "supported": [
+          "reasoning_effort",
+          "enable_thinking",
+          "preserve_thinking",
+          "stop",
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens",
+          "stream",
+          "seed",
+          "temperature",
+          "top_p",
+          "top_k",
+          "min_p",
+          "presence_penalty",
+          "frequency_penalty",
+          "logit_bias",
+          "logprobs",
+          "tools",
+          "tool_choice",
+          "parallel_tool_calls"
+        ],
+        "token_budget_aliases": [
+          "max_tokens",
+          "max_completion_tokens",
+          "max_output_tokens"
+        ],
+        "max_tokens_default": "unbounded (budget = context minus prompt length)",
+        "error_format": "openai",
+        "accepted_but_ignored": [
+          "n",
+          "drafter"
+        ],
+        "partial": [],
+        "sampling": {
+          "implemented": [
+            "temperature",
+            "top_p",
+            "top_k",
+            "min_p",
+            "seed",
+            "presence_penalty",
+            "frequency_penalty",
+            "logit_bias",
+            "logprobs"
+          ]
+        },
+        "max_tokens_cap": null,
+        "reasoning_effort_values": [
+          "high",
+          "low",
+          "medium",
+          "minimal",
+          "xhigh"
+        ],
+        "server_overrides": {}
+      },
+      "modules": [
+        {
+          "ModuleName": "libhipblaslt.dll",
+          "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\libhipblaslt.dll"
+        },
+        {
+          "ModuleName": "amdhip64_7.dll",
+          "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\amdhip64_7.dll"
+        },
+        {
+          "ModuleName": "rocblas.dll",
+          "FileName": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\build\\rocblas.dll"
+        }
+      ]
+    }
+  ],
+  "deployments": [
+    {
+      "root": "C:\\Users\\Jerry\\llama.cpp\\Qwenox",
+      "backup": "C:\\Users\\Jerry\\llama.cpp\\Qwenox\\backups\\launcher-unified-20261115T133842Z",
+      "files": {
+        "build/gdec-win.exe": "fa2673d142393f8ce8d19120baf2fccf11f83cd5b2775f929b5b7e2294231990",
+        "build/gdec-api-win.exe": "10ed272329652c571490bcfc4e7e9ac2cedd9ac6d422b693fd74b3de895f6fee",
+        "start_win.exe": "c30a62b2f22ea1231b0fa1a840d90a6d2b07d14cf7730a98dc148aa9c6f9d74e",
+        "launcher_settings.exe": "4e71cf7229e3607749e46e5b2805bd089a4ee80acdecf22143db83d6b17d87f7",
+        "build/qwenox-engine-win.exe": "fa2673d142393f8ce8d19120baf2fccf11f83cd5b2775f929b5b7e2294231990",
+        "build/qwenox-win.exe": "10ed272329652c571490bcfc4e7e9ac2cedd9ac6d422b693fd74b3de895f6fee",
+        "service.conf": "d5202a2c2e2e5e95ac6468d30b8bb14a375b2ecf29c890f613d3ddbb74f33536",
+        "data/launcher-profiles.json": "15ce76537a29c2e1688ea69ebd503a499099af516b5f5a6eb8ee9b04d22739f8"
+      },
+      "preserved_runtime_count": 266,
+      "original_history_preserved": true,
+      "validation_records_appended": 18
+    },
+    {
+      "root": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27",
+      "backup": "C:\\Users\\Jerry\\llama.cpp\\Qwenox-qwen27\\backups\\launcher-unified-20261115T133842Z",
+      "files": {
+        "build/gdec-win.exe": "fa2673d142393f8ce8d19120baf2fccf11f83cd5b2775f929b5b7e2294231990",
+        "build/gdec-api-win.exe": "10ed272329652c571490bcfc4e7e9ac2cedd9ac6d422b693fd74b3de895f6fee",
+        "start_win.exe": "c30a62b2f22ea1231b0fa1a840d90a6d2b07d14cf7730a98dc148aa9c6f9d74e",
+        "launcher_settings.exe": "4e71cf7229e3607749e46e5b2805bd089a4ee80acdecf22143db83d6b17d87f7",
+        "build/qwenox-engine-win.exe": "fa2673d142393f8ce8d19120baf2fccf11f83cd5b2775f929b5b7e2294231990",
+        "build/qwenox-win.exe": "10ed272329652c571490bcfc4e7e9ac2cedd9ac6d422b693fd74b3de895f6fee",
+        "service.conf": "ea91065e2f0d47321bb77a1027a0b21e9bcb1169268d1627c58c97ac977d19c3",
+        "data/launcher-profiles.json": "8ceb04b97ad5b0deed8b9827dd349ec446d622e5a81a6e4e5a28e50f451f982e"
+      },
+      "preserved_runtime_count": 259,
+      "original_history_preserved": true,
+      "validation_records_appended": 6
+    }
+  ],
+  "model_state_after": "both stopped, matching initial state",
+  "management_state_after": "primary web UI running; secondary and preview closed",
+  "scope_limits": [
+    "Short real prompts under original capacities; not a full 256K long-context evaluation",
+    "Standalone 27B directory retains its former port18871 as a compatibility fallback, without a desktop entry",
+    "External client applications were not reconfigured; previous 18871 clients should now use daily API18861"
+  ]
+}
